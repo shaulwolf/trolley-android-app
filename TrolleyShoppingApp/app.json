@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Trolley",
+    "slug": "trolley-shopping-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "android": {
+      "package": "com.shaulwolf.trolley",
+      "versionCode": 1,
+      "intentFilters": [
+        {
+          "action": "android.intent.action.SEND",
+          "category": ["android.intent.category.DEFAULT"],
+          "data": [
+            {
+              "mimeType": "text/plain"
+            }
+          ]
+        },
+        {
+          "action": "android.intent.action.VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "*"
+            },
+            {
+              "scheme": "http", 
+              "host": "*"
+            }
+          ],
+          "category": [
+            "android.intent.category.BROWSABLE",
+            "android.intent.category.DEFAULT"
+          ]
+        }
+      ]
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e2aff7c8-5f40-4673-ab3b-3a09e1578f6f"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e2aff7c8-5f40-4673-ab3b-3a09e1578f6f"
+    },
+    "ios": {
+      "bundleIdentifier": "com.shaulwolf.trolley",
+      "supportsTablet": false
+    }
+  }
+}
