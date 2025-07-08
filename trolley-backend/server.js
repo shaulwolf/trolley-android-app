@@ -2,6 +2,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
+const { statements } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,6 +19,82 @@ app.get('/health', (req, res) => {
     scraper: 'universal-pure-scraper',
     version: '2.0'
   });
+});
+
+// Get all products
+app.get('/api/products', (req, res) => {
+  try {
+    const products = statements.getAllProducts.all();
+    const parsedProducts = products.map(product => ({
+      ...product,
+      variants: product.variants ? JSON.parse(product.variants) : {}
+    }));
+    res.json(parsedProducts);
+  } catch (error) {
+    console.error('Error getting products:', error);
+    res.status(500).json({ error: 'Failed to get products' });
+  }
+});
+
+// Add a product
+app.post('/api/products', (req, res) => {
+  try {
+    const { id, url, title, price, originalPrice, image, site, displaySite, category, variants, dateAdded } = req.body;
+    
+    const existing = statements.getProductByUrl.get(url);
+    if (existing) {
+      return res.status(409).json({ error: 'Product already exists' });
+    }
+    
+    statements.insertProduct.run(
+      id, url, title, price, originalPrice, image, site, displaySite, 
+      category || 'general', JSON.stringify(variants || {}), dateAdded
+    );
+    
+    res.json({ success: true, id });
+  } catch (error) {
+    console.error('Error adding product:', error);
+    res.status(500).json({ error: 'Failed to add product' });
+  }
+});
+
+// Delete a product
+app.delete('/api/products/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = statements.deleteProduct.run(id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting product:', error);
+    res.status(500).json({ error: 'Failed to delete product' });
+  }
+});
+
+// Update a product
+app.put('/api/products/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, price, originalPrice, image, site, displaySite, category, variants } = req.body;
+    
+    const result = statements.updateProduct.run(
+      title, price, originalPrice, image, site, displaySite, 
+      category, JSON.stringify(variants || {}), id
+    );
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating product:', error);
+    res.status(500).json({ error: 'Failed to update product' });
+  }
 });
 
 // Universal product scraping with maximum coverage
@@ -120,7 +197,7 @@ async function scrapeProduct(url, retryCount = 0) {
       console.log('🔄 Detected dynamic pricing site, enhanced loading...');
       
       try {
-      try {
+   
         // Wait for network to settle (Puppeteer way)
         await page.waitForSelector('body', { timeout: 5000 });
         
