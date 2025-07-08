@@ -1,4 +1,81 @@
-import React, { useState, useEffect } from 'react';
+// FIXED EXTRACT PRODUCT INFO FUNCTION
+  const extractProductInfo = async (url) => {
+    console.log('🔍 Extracting product info from:', url);
+    
+    try {
+      console.log('🕷️ Using trolley-backend universal scraper...');
+      
+      // Use fixed subdomain tunnel URL for development
+      const BACKEND_URL = __DEV__ 
+        ? 'https://trolley-backend.loca.lt'  // Fixed subdomain - always the same!
+        : 'https://your-backend.herokuapp.com';
+      
+      console.log('📡 Connecting to backend:', BACKEND_URL);
+      
+      // Test backend connection first
+      console.log('🔍 Testing backend connection...');
+      const healthCheck = await fetch(`${BACKEND_URL}/health`, {
+        method: 'GET',
+        timeout: 5000
+      });
+      
+      if (!healthCheck.ok) {
+        throw new Error(`Backend health check failed: ${healthCheck.status}`);
+      }
+      
+      console.log('✅ Backend is responding, attempting product extraction...');
+      
+      const response = await fetch(`${BACKEND_URL}/extract-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+        timeout: 20000 // 20 second timeout
+      });
+      
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response headers:', response.headers);
+      
+      if (response.ok) {
+        const productData = await response.json();
+        console.log('✅ Extraction successful:', productData);
+        
+        return {
+          title: productData.title || `Product from ${new URL(url).hostname}`,
+          image: productData.image,
+          price: productData.price || 'N/A',
+          site: productData.site || new URL(url).hostname,
+          originalPrice: productData.originalPrice,
+          variants: productData.variants || {}
+        };
+      } else {
+        const errorText = await response.text();
+        console.log('❌ Backend error response:', errorText);
+        throw new Error(`Server responded with status: ${response.status} - ${errorText}`);
+      }
+      
+    } catch (error) {
+      console.log('⚠️ Backend connection failed:', error.message);
+      console.log('⚠️ Full error:', error);
+      
+      // Show more detailed error info
+      Alert.alert(
+        'Backend Connection Failed',
+        `Error: ${error.message}\n\nUsing fallback mode...`,
+        [{ text: 'OK' }]
+      );
+      
+      // Simple fallback when backend is unavailable
+      const urlObj = new URL(url);
+      return {
+        title: `Product from ${urlObj.hostname}`,
+        image: null,
+        price: 'N/A',
+        site: urlObj.hostname,
+        originalPrice: null,
+        variants: {}
+      };
+    }
+  };import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -16,101 +93,157 @@ import {
   Dimensions
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as ImagePicker from 'expo-image-picker';
+
 
 const STORAGE_KEY = '@trolley_products';
 const { width } = Dimensions.get('window');
 
 export default function App() {
   const [products, setProducts] = useState([]);
-  const [customCategories, setCustomCategories] = useState(['general', 'clothing', 'electronics', 'home', 'books']);
+  const [customCategories, setCustomCategories] = useState([]);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
   const [productUrl, setProductUrl] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('general');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [currentFilter, setCurrentFilter] = useState('all');
-  const [currentTab, setCurrentTab] = useState('categories'); // 'categories' or 'stores'
+  const [currentTab, setCurrentTab] = useState('categories');
   const [isLoading, setIsLoading] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [editingProductId, setEditingProductId] = useState(null);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const [isScreenshotModalVisible, setIsScreenshotModalVisible] = useState(false);
+  const [showCategoriesDropdown, setShowCategoriesDropdown] = useState(false);
+  const [showStoresDropdown, setShowStoresDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('recently-added');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
 
-  // IMPROVED URL HANDLING
-const handleIncomingURL = (url) => {
-  console.log('📱 Received URL:', url);
-  console.log('📱 URL type:', typeof url);
-  
-  // Show alert to see what we're receiving
-  Alert.alert('Debug: Received URL', `URL: ${url}\nType: ${typeof url}`);
-  
-  try {
-    // Handle different types of shared content
-    if (typeof url === 'string') {
-      console.log('📱 Processing string URL');
-      
-      // Direct URL sharing
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        console.log('📱 Direct HTTP URL shared');
-        Alert.alert('Debug', 'Found HTTP URL, setting product URL');
-        setProductUrl(url);
-        setIsAddModalVisible(true);
-        return;
-      }
-      
-      // Custom scheme
-      if (url.startsWith('trolley://')) {
-        console.log('📱 Custom scheme URL');
-        Alert.alert('Debug', 'Found custom scheme URL');
-        try {
-          const urlObj = new URL(url);
-          const productUrl = urlObj.searchParams.get('url');
-          if (productUrl) {
-            setProductUrl(productUrl);
-            setIsAddModalVisible(true);
-            return;
-          }
-        } catch (e) {
-          console.log('Error parsing custom scheme:', e);
-        }
-      }
-      
-      // Intent URL (Android sharing)
-      if (url.includes('intent://')) {
-        console.log('📱 Android intent URL');
-        Alert.alert('Debug', 'Found intent URL');
-        const urlMatch = url.match(/intent:\/\/(.+?)#/);
-        if (urlMatch) {
-          const extractedUrl = 'https://' + urlMatch[1];
-          setProductUrl(extractedUrl);
-          setIsAddModalVisible(true);
-          return;
-        }
-      }
-      
-      // Text sharing (might contain URLs)
-      const httpMatch = url.match(/(https?:\/\/[^\s]+)/);
-      if (httpMatch) {
-        console.log('📱 Found URL in shared text');
-        Alert.alert('Debug', 'Found URL in text');
-        setProductUrl(httpMatch[1]);
-        setIsAddModalVisible(true);
-        return;
-      }
-      
-      console.log('📱 No recognizable URL pattern found');
-      Alert.alert('Debug: No URL Found', `Could not extract URL from: ${url}`);
-    } else {
-      console.log('📱 Received non-string URL:', typeof url);
-      Alert.alert('Debug: Non-string URL', `Received: ${JSON.stringify(url)}`);
-    }
+  // FIXED AUTOMATIC URL HANDLING
+  const handleIncomingURL = async (url) => {
+    console.log('📱 Received URL for auto-addition:', url);
     
-  } catch (error) {
-    console.log('❌ Error handling URL:', error);
-    Alert.alert('Debug: Error', `Error: ${error.message}\nURL: ${url}`);
-  }
-};
+    try {
+      let extractedUrl = null;
+      
+      // Extract URL from different sharing formats
+      if (typeof url === 'string') {
+        // Handle Expo development client URLs
+        if (url.includes('exp+trolley-shopping-app://expo-development-client/')) {
+          console.log('📱 Expo development client URL detected');
+          const urlParams = new URLSearchParams(url.split('?')[1]);
+          extractedUrl = urlParams.get('url');
+          if (extractedUrl) {
+            extractedUrl = decodeURIComponent(extractedUrl);
+            console.log('📱 Decoded URL from Expo client:', extractedUrl);
+          }
+        }
+        // Direct HTTP URL sharing
+        else if (url.startsWith('http://') || url.startsWith('https://')) {
+          extractedUrl = url;
+        }
+        // Custom scheme: trolley://add?url=https://example.com
+        else if (url.startsWith('trolley://')) {
+          const urlObj = new URL(url);
+          extractedUrl = urlObj.searchParams.get('url');
+        }
+        // Android intent URL
+        else if (url.includes('intent://')) {
+          const urlMatch = url.match(/intent:\/\/(.+?)#/);
+          if (urlMatch) {
+            extractedUrl = 'https://' + urlMatch[1];
+          }
+        }
+        // Text sharing with URL embedded
+        else {
+          const httpMatch = url.match(/(https?:\/\/[^\s]+)/);
+          if (httpMatch) {
+            extractedUrl = httpMatch[1];
+          }
+        }
+      }
+      
+      if (extractedUrl) {
+        console.log('📱 Extracted URL:', extractedUrl);
+        
+        // Show loading indicator
+        Alert.alert('Adding Product', 'Extracting product information...', [], { cancelable: false });
+        
+        // Automatically add the product
+        await addProductFromUrl(extractedUrl);
+      } else {
+        console.log('❌ Could not extract URL from:', url);
+        Alert.alert('Error', 'Could not extract product URL from shared content');
+      }
+      
+    } catch (error) {
+      console.log('❌ Error handling shared URL:', error);
+      Alert.alert('Error', `Failed to process shared URL: ${error.message}`);
+    }
+  };
+
+  // NEW FUNCTION: Add product directly from URL (automatic)
+  const addProductFromUrl = async (url) => {
+    try {
+      // Check for duplicates first
+      const exists = products.some(p => p.url === url);
+      if (exists) {
+        Alert.alert('Already Added', 'This product is already in your trolley!');
+        return;
+      }
+
+      console.log('🔄 Extracting product info from:', url);
+      
+      // Extract product info using your backend
+      const extractedInfo = await extractProductInfo(url);
+      
+      const newProduct = {
+        id: Date.now().toString(),
+        url: url,
+        category: 'general', // Default category
+        dateAdded: new Date().toISOString(),
+        ...extractedInfo,
+        // Clean up the site name for display only
+        displaySite: cleanStoreName(extractedInfo.site || new URL(url).hostname)
+      };
+
+      // Add to products list
+      const updatedProducts = [...products, newProduct];
+      setProducts(updatedProducts);
+      
+      // Save to storage
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
+        products: updatedProducts,
+        customCategories,
+        lastSync: new Date().toISOString()
+      }));
+      
+      // Show success message
+      Alert.alert(
+        'Product Added! 🛒', 
+        `"${newProduct.title}" has been added to your trolley`,
+        [{ text: 'View Trolley', onPress: () => setCurrentTab('categories') }]
+      );
+      
+      console.log('✅ Product auto-added successfully:', newProduct.title);
+      
+    } catch (error) {
+      console.error('❌ Auto-addition failed:', error);
+      Alert.alert(
+        'Extraction Failed', 
+        `Could not extract product info. Would you like to add it manually?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Add Manually', 
+            onPress: () => {
+              setProductUrl(url);
+              setIsAddModalVisible(true);
+            }
+          }
+        ]
+      );
+    }
+  };
 
   // Load products when app starts
   useEffect(() => {
@@ -119,39 +252,39 @@ const handleIncomingURL = (url) => {
 
   // IMPROVED URL LISTENER
   useEffect(() => {
-    // Handle app opened from URL
+    // Handle app opened from URL when app was closed
     const handleInitialURL = async () => {
       try {
         const initialUrl = await Linking.getInitialURL();
-        console.log('📱 Initial URL:', initialUrl);
+        console.log('📱 App opened with initial URL:', initialUrl);
         if (initialUrl) {
-          handleIncomingURL(initialUrl);
+          // Wait a bit for app to fully load
+          setTimeout(() => handleIncomingURL(initialUrl), 1000);
         }
       } catch (error) {
         console.log('Error getting initial URL:', error);
       }
     };
 
-    // Handle URLs while app is running
+    // Handle URLs while app is running (app switcher/sharing)
     const handleURLChange = (event) => {
-      console.log('📱 URL change event:', event);
-      if (event?.url) {
-        handleIncomingURL(event.url);
-      } else if (typeof event === 'string') {
-        handleIncomingURL(event);
+      console.log('📱 App received URL while running:', event);
+      const url = event?.url || event;
+      if (url) {
+        handleIncomingURL(url);
       }
     };
 
     // Set up listeners
     handleInitialURL();
     
-    // For newer React Native versions
+    // Listen for URL events while app is running
     const subscription = Linking.addEventListener('url', handleURLChange);
 
     return () => {
       subscription?.remove();
     };
-  }, []);
+  }, [products]); // Add products as dependency so it has access to current state
 
   // Save products whenever they change
   useEffect(() => {
@@ -166,7 +299,7 @@ const handleIncomingURL = (url) => {
       if (saved) {
         const data = JSON.parse(saved);
         setProducts(data.products || []);
-        setCustomCategories(data.customCategories || ['general', 'clothing', 'electronics', 'home', 'books']);
+        setCustomCategories(data.customCategories || []);
         console.log('Loaded products:', data.products?.length || 0);
       }
     } catch (error) {
@@ -198,136 +331,198 @@ const handleIncomingURL = (url) => {
     setRefreshing(false);
   };
 
-const extractProductInfo = async (url) => {
-  console.log('🔍 Starting extraction for:', url);
-  
-  const BACKEND_URL = 'https://flat-monkeys-trade.loca.lt';
-  
-  try {
-    console.log('📡 Sending request to:', BACKEND_URL);
+  // FIXED EXTRACT PRODUCT INFO FUNCTION
+  const extractProductInfo = async (url) => {
+    console.log('🔍 Extracting product info from:', url);
     
-    const response = await fetch(`${BACKEND_URL}/extract-product`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url })
-    });
-    
-    console.log('📡 Response status:', response.status);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+      console.log('🕷️ Using trolley-backend universal scraper...');
+      
+      // Use fixed subdomain tunnel URL for development
+      const BACKEND_URL = __DEV__ 
+        ? 'https://trolley-backend.loca.lt'  // Fixed subdomain - always the same!
+        : 'https://your-backend.herokuapp.com';
+      
+      const response = await fetch(`${BACKEND_URL}/extract-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+        timeout: 20000 // 20 second timeout
+      });
+      
+      if (response.ok) {
+        const productData = await response.json();
+        console.log('✅ Extraction successful:', productData);
+        
+        return {
+          title: productData.title || `Product from ${new URL(url).hostname}`,
+          image: productData.image,
+          price: productData.price || 'N/A',
+          site: productData.site || new URL(url).hostname,
+          originalPrice: productData.originalPrice,
+          variants: productData.variants || {}
+        };
+      } else {
+        throw new Error(`Server responded with status: ${response.status}`);
+      }
+      
+    } catch (error) {
+      console.log('⚠️ trolley-backend failed, using fallback...', error.message);
+      
+      // Simple fallback when backend is unavailable
+      const urlObj = new URL(url);
+      return {
+        title: `Product from ${urlObj.hostname}`,
+        image: null,
+        price: 'N/A',
+        site: urlObj.hostname,
+        originalPrice: null,
+        variants: {}
+      };
     }
-    
-    const productData = await response.json();
-    console.log('✅ Got product data:', productData);
-    
-    return {
-      title: productData.title || `Product from ${new URL(url).hostname}`,
-      image: productData.image,
-      price: productData.price || 'N/A',
-      site: productData.site || new URL(url).hostname,
-      originalPrice: productData.originalPrice,
-      variants: productData.variants || {}
-    };
-    
-  } catch (error) {
-    console.error('❌ Extraction failed:', error);
-    
-    // Fallback
-    const urlObj = new URL(url);
-    return {
-      title: `Product from ${urlObj.hostname}`,
-      image: null,
-      price: 'N/A',
-      site: urlObj.hostname,
-      originalPrice: null,
-      variants: {}
-    };
-  }
-};
+  };
 
-const addProduct = async () => {
-  if (!productUrl.trim()) {
-    Alert.alert('Error', 'Please enter a URL');
-    return;
-  }
-
-  setIsExtracting(true);
-  
-  try {
-    // Check for duplicates first
-    const exists = products.some(p => p.url === productUrl.trim());
-    if (exists) {
-      Alert.alert('Already Added', 'This product is already in your trolley');
+  // Helper function to clean up store names
+  const cleanStoreName = (url) => {
+    try {
+      const hostname = new URL(url.startsWith('http') ? url : `https://${url}`).hostname;
+      
+      // Remove www. prefix
+      const withoutWww = hostname.replace(/^www\./, '');
+      
+      // Store name mappings
+      const storeNames = {
+        'amazon.com': 'Amazon',
+        'ebay.com': 'eBay', 
+        'target.com': 'Target',
+        'walmart.com': 'Walmart',
+        'bestbuy.com': 'Best Buy',
+        'homedepot.com': 'Home Depot',
+        'lowes.com': 'Lowe\'s',
+        'macys.com': 'Macy\'s',
+        'nordstrom.com': 'Nordstrom',
+        'zappos.com': 'Zappos',
+        'etsy.com': 'Etsy',
+        'wayfair.com': 'Wayfair',
+        'overstock.com': 'Overstock',
+        'costco.com': 'Costco',
+        'samsclub.com': 'Sam\'s Club',
+        'buckmason.com': 'Buck Mason',
+        'everlane.com': 'Everlane',
+        'uniqlo.com': 'Uniqlo',
+        'hm.com': 'H&M',
+        'zara.com': 'Zara',
+        'gap.com': 'Gap',
+        'oldnavy.com': 'Old Navy',
+        'bananarepublic.com': 'Banana Republic'
+      };
+      
+      // Return mapped name or capitalize the domain
+      return storeNames[withoutWww] || 
+             withoutWww.split('.')[0]
+               .split(/[-_]/)
+               .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+               .join(' ');
+    } catch {
+      return url;
+    }
+  };
+  const addProduct = async () => {
+    if (!productUrl.trim()) {
+      Alert.alert('Error', 'Please enter a URL');
       return;
     }
 
-    // Extract product info
-    const extractedInfo = await extractProductInfo(productUrl.trim());
+    setIsExtracting(true);
     
-    const newProduct = {
-      id: Date.now().toString(),
-      url: productUrl.trim(),
-      category: selectedCategory,
-      dateAdded: new Date().toISOString(),
-      ...extractedInfo
-    };
+    try {
+      // Check for duplicates first
+      const exists = products.some(p => p.url === productUrl.trim());
+      if (exists) {
+        Alert.alert('Already Added', 'This product is already in your trolley');
+        return;
+      }
 
-    setProducts([...products, newProduct]);
-    setProductUrl('');
-    setSelectedCategory('general');
-    setIsAddModalVisible(false);
-    Alert.alert('Success', 'Product added to trolley!');
-    
-  } catch (error) {
-    Alert.alert('Error', `Failed to add product: ${error.message}`);
-  } finally {
-    setIsExtracting(false);
-  }
-};
-const addProductDirectly = async (productData) => {
-  try {
-    // Check for duplicates first
-    const exists = products.some(p => p.url === productData.url || p.id === productData.id);
-    if (exists) {
-      Alert.alert('Already Added', 'This product is already in your trolley');
-      return;
+      // Extract product info
+      const extractedInfo = await extractProductInfo(productUrl.trim());
+      
+      // Use custom category or default to general
+      const finalCategory = selectedCategory.trim() || 'general';
+      
+      // Add to custom categories if it's new
+      if (finalCategory !== 'general' && !customCategories.includes(finalCategory)) {
+        setCustomCategories([...customCategories, finalCategory]);
+      }
+      
+      const newProduct = {
+        id: Date.now().toString(),
+        url: productUrl.trim(),
+        category: finalCategory,
+        dateAdded: new Date().toISOString(),
+        ...extractedInfo,
+        // Clean up the site name for display only
+        displaySite: cleanStoreName(extractedInfo.site || new URL(productUrl.trim()).hostname)
+      };
+
+      setProducts([...products, newProduct]);
+      setProductUrl('');
+      setSelectedCategory('');
+      setIsAddModalVisible(false);
+      
+    } catch (error) {
+      Alert.alert('Error', `Failed to add product: ${error.message}`);
+    } finally {
+      setIsExtracting(false);
     }
+  };
 
-    setProducts([...products, productData]);
-    Alert.alert('Success', `Added "${productData.title}" to trolley!`);
-    
-  } catch (error) {
-    Alert.alert('Error', `Failed to add product: ${error.message}`);
-  }
-}; 
+  const addProductDirectly = async (productData) => {
+    try {
+      // Check for duplicates first
+      const exists = products.some(p => p.url === productData.url || p.id === productData.id);
+      if (exists) {
+        Alert.alert('Already Added', 'This product is already in your trolley');
+        return;
+      }
+
+      setProducts([...products, productData]);
+      Alert.alert('Success', `Added "${productData.title}" to trolley!`);
+      
+    } catch (error) {
+      Alert.alert('Error', `Failed to add product: ${error.message}`);
+    }
+  };
 
   const removeProduct = (productId) => {
-    Alert.alert(
-      'Remove Product',
-      'Are you sure you want to remove this product?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            setProducts(products.filter(p => p.id !== productId));
-            Alert.alert('Removed', 'Product removed from trolley');
-          }
-        }
-      ]
-    );
+    setProducts(products.filter(p => p.id !== productId));
   };
 
   const openProduct = (url) => {
     Linking.openURL(url);
   };
 
-  const openStore = (site) => {
-    const storeUrl = site.startsWith('http') ? site : `https://${site}`;
+  const openStore = (product) => {
+    // Use the original site URL to construct the store homepage
+    const siteUrl = product.site;
+    
+    // Check if site URL exists
+    if (!siteUrl) {
+      console.log('No site URL available for product:', product);
+      return;
+    }
+    
+    let storeUrl;
+    
+    try {
+      // Extract the base domain from the site
+      const url = new URL(siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`);
+      storeUrl = `${url.protocol}//${url.hostname}`;
+    } catch (error) {
+      console.log('Error parsing store URL:', error);
+      // Fallback if URL parsing fails
+      storeUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
+    }
+    
     Linking.openURL(storeUrl);
   };
 
@@ -378,13 +573,45 @@ const addProductDirectly = async (productData) => {
   };
 
   const getFilteredProducts = () => {
-    if (currentFilter === 'all') return products;
-    
-    if (currentTab === 'categories') {
-      return products.filter(p => p.category === currentFilter);
+    let filtered = [];
+    if (currentFilter === 'all') {
+      filtered = products;
+    } else if (currentTab === 'categories') {
+      filtered = products.filter(p => p.category === currentFilter);
     } else {
-      return products.filter(p => p.site === currentFilter);
+      filtered = products.filter(p => (p.displaySite || p.site) === currentFilter);
     }
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(p => 
+        p.title.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+    
+    // Apply sorting
+    return filtered.sort((a, b) => {
+      switch (sortBy) {
+        case 'a-z':
+          return a.title.localeCompare(b.title);
+        case 'z-a':
+          return b.title.localeCompare(a.title);
+        case 'recently-added':
+          return new Date(b.dateAdded) - new Date(a.dateAdded);
+        case 'last-added':
+          return new Date(a.dateAdded) - new Date(b.dateAdded);
+        case 'price-high':
+          const priceA = parseFloat(a.price.replace(/[^0-9.-]+/g, '')) || 0;
+          const priceB = parseFloat(b.price.replace(/[^0-9.-]+/g, '')) || 0;
+          return priceB - priceA;
+        case 'price-low':
+          const priceA2 = parseFloat(a.price.replace(/[^0-9.-]+/g, '')) || 0;
+          const priceB2 = parseFloat(b.price.replace(/[^0-9.-]+/g, '')) || 0;
+          return priceA2 - priceB2;
+        default:
+          return new Date(b.dateAdded) - new Date(a.dateAdded);
+      }
+    });
   };
 
   const getCategoryCounts = () => {
@@ -399,7 +626,7 @@ const addProductDirectly = async (productData) => {
   const getStoreCounts = () => {
     const counts = { all: products.length };
     products.forEach(product => {
-      const store = product.site;
+      const store = product.displaySite || product.site;
       counts[store] = (counts[store] || 0) + 1;
     });
     return counts;
@@ -408,9 +635,10 @@ const addProductDirectly = async (productData) => {
   const getFilterOptions = () => {
     if (currentTab === 'categories') {
       const counts = getCategoryCounts();
+      const uniqueCategories = [...new Set(products.map(p => p.category || 'general'))];
       return [
         { label: `All Items (${counts.all})`, value: 'all' },
-        ...customCategories.map(cat => ({
+        ...uniqueCategories.map(cat => ({
           label: `${cat.charAt(0).toUpperCase() + cat.slice(1)} (${counts[cat] || 0})`,
           value: cat
         }))
@@ -436,6 +664,11 @@ const addProductDirectly = async (productData) => {
 
   const changeProductCategory = (newCategory) => {
     if (editingProductId) {
+      // If it's a new category, add it to the list
+      if (newCategory !== 'general' && !customCategories.includes(newCategory)) {
+        setCustomCategories([...customCategories, newCategory]);
+      }
+      
       setProducts(products.map(p => 
         p.id === editingProductId 
           ? { ...p, category: newCategory }
@@ -443,7 +676,7 @@ const addProductDirectly = async (productData) => {
       ));
       setIsCategoryModalVisible(false);
       setEditingProductId(null);
-      Alert.alert('Success', 'Category updated!');
+      setNewCategoryName('');
     }
   };
 
@@ -454,14 +687,9 @@ const addProductDirectly = async (productData) => {
     }
 
     const categoryValue = newCategoryName.toLowerCase().trim();
-    if (customCategories.includes(categoryValue)) {
-      Alert.alert('Error', 'Category already exists');
-      return;
-    }
-
-    setCustomCategories([...customCategories, categoryValue]);
-    setNewCategoryName('');
-    Alert.alert('Success', 'Category added!');
+    
+    // Add the new category and change the product's category
+    changeProductCategory(categoryValue);
   };
 
   const renderVariants = (variants) => {
@@ -497,83 +725,197 @@ const addProductDirectly = async (productData) => {
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
-<View style={styles.header}>
-  <Text style={styles.title}>🛒 Trolley v2</Text>
-  <View style={styles.headerButtons}>
-  <TouchableOpacity 
-    style={[styles.addButton, { backgroundColor: '#007bff', marginRight: 10 }]}
-    onPress={() => setIsScreenshotModalVisible(true)}
-  >
-    <Text style={styles.addButtonText}>📸</Text>
-  </TouchableOpacity>
-  <TouchableOpacity 
-    style={[styles.addButton, { backgroundColor: '#28a745', marginRight: 10 }]}
-    onPress={() => {
-      Alert.alert('Test', 'Button works!');
-      setProductUrl('https://amazon.com/test-product');
-      setIsAddModalVisible(true);
-    }}
-  >
-    <Text style={styles.addButtonText}>T</Text>
-  </TouchableOpacity>
-  <TouchableOpacity style={styles.addButton} onPress={() => setIsAddModalVisible(true)}>
-    <Text style={styles.addButtonText}>+</Text>
-  </TouchableOpacity>
-</View>
-</View>
+      <View style={styles.header}>
+        <Text style={styles.title}>🛒 Trolley v2</Text>
+        <View style={styles.headerButtons}>
+          <TouchableOpacity style={styles.addButton} onPress={() => setIsAddModalVisible(true)}>
+            <Text style={styles.addButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-      {/* Tab Navigation */}
+      {/* Tab Navigation - Real Dropdowns */}
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, currentTab === 'categories' && styles.activeTab]}
-          onPress={() => switchTab('categories')}
+          onPress={() => {
+            setShowCategoriesDropdown(!showCategoriesDropdown);
+            setShowStoresDropdown(false);
+            setCurrentTab('categories');
+          }}
         >
           <Text style={[styles.tabText, currentTab === 'categories' && styles.activeTabText]}>
-            Categories
+            Categories {showCategoriesDropdown ? '▲' : '▼'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, currentTab === 'stores' && styles.activeTab]}
-          onPress={() => switchTab('stores')}
+          onPress={() => {
+            setShowStoresDropdown(!showStoresDropdown);
+            setShowCategoriesDropdown(false);
+            setCurrentTab('stores');
+          }}
         >
           <Text style={[styles.tabText, currentTab === 'stores' && styles.activeTabText]}>
-            Stores
+            Stores {showStoresDropdown ? '▲' : '▼'}
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filter Chips */}
-      <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          {getFilterOptions().map((option, index) => (
+      {/* Categories Dropdown */}
+      {showCategoriesDropdown && (
+        <View style={styles.dropdownContainer}>
+          <View style={styles.dropdown}>
             <TouchableOpacity
-              key={index}
-              style={[
-                styles.filterChip,
-                currentFilter === option.value && styles.activeFilterChip
-              ]}
-              onPress={() => setCurrentFilter(option.value)}
+              style={[styles.dropdownItem, currentFilter === 'all' && styles.activeDropdownItem]}
+              onPress={() => {
+                setCurrentFilter('all');
+                setShowCategoriesDropdown(false);
+              }}
             >
-              <Text style={[
-                styles.filterChipText,
-                currentFilter === option.value && styles.activeFilterChipText
-              ]}>
-                {option.label}
+              <Text style={[styles.dropdownText, currentFilter === 'all' && styles.activeDropdownText]}>
+                All Items ({products.length})
               </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+            {[...new Set(products.map(p => p.category || 'general'))].map(category => {
+              const count = products.filter(p => (p.category || 'general') === category).length;
+              return (
+                <TouchableOpacity
+                  key={category}
+                  style={[styles.dropdownItem, currentFilter === category && styles.activeDropdownItem]}
+                  onPress={() => {
+                    setCurrentFilter(category);
+                    setShowCategoriesDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownText, currentFilter === category && styles.activeDropdownText]}>
+                    {category.charAt(0).toUpperCase() + category.slice(1)} ({count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* Search and Sort Bar */}
+      <View style={styles.searchSortContainer}>
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search products..."
+            placeholderTextColor="#999"
+            onFocus={() => {
+              setShowCategoriesDropdown(false);
+              setShowStoresDropdown(false);
+              setShowSortDropdown(false);
+            }}
+          />
+        </View>
+        
+        <TouchableOpacity
+          style={styles.sortButton}
+          onPress={() => {
+            setShowSortDropdown(!showSortDropdown);
+            setShowCategoriesDropdown(false);
+            setShowStoresDropdown(false);
+          }}
+        >
+          <Text style={styles.sortButtonText}>
+            Sort {showSortDropdown ? '▲' : '▼'}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Sort Dropdown */}
+      {showSortDropdown && (
+        <View style={styles.sortDropdownContainer}>
+          <View style={styles.dropdown}>
+            {[
+              { label: 'Recently Added', value: 'recently-added' },
+              { label: 'Last Added', value: 'last-added' },
+              { label: 'A-Z', value: 'a-z' },
+              { label: 'Z-A', value: 'z-a' },
+              { label: 'Price High', value: 'price-high' },
+              { label: 'Price Low', value: 'price-low' }
+            ].map(option => (
+              <TouchableOpacity
+                key={option.value}
+                style={[styles.dropdownItem, sortBy === option.value && styles.activeDropdownItem]}
+                onPress={() => {
+                  setSortBy(option.value);
+                  setShowSortDropdown(false);
+                }}
+              >
+                <Text style={[styles.dropdownText, sortBy === option.value && styles.activeDropdownText]}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* Stores Dropdown */}
+      {showStoresDropdown && (
+        <View style={styles.dropdownContainer}>
+          <View style={styles.dropdown}>
+            <TouchableOpacity
+              style={[styles.dropdownItem, currentFilter === 'all' && styles.activeDropdownItem]}
+              onPress={() => {
+                setCurrentFilter('all');
+                setShowStoresDropdown(false);
+              }}
+            >
+              <Text style={[styles.dropdownText, currentFilter === 'all' && styles.activeDropdownText]}>
+                All Stores ({products.length})
+              </Text>
+            </TouchableOpacity>
+            {[...new Set(products.map(p => p.displaySite || p.site))].map(store => {
+              const count = products.filter(p => (p.displaySite || p.site) === store).length;
+              return (
+                <TouchableOpacity
+                  key={store}
+                  style={[styles.dropdownItem, currentFilter === store && styles.activeDropdownItem]}
+                  onPress={() => {
+                    setCurrentFilter(store);
+                    setShowStoresDropdown(false);
+                  }}
+                >
+                  <Text style={[styles.dropdownText, currentFilter === store && styles.activeDropdownText]}>
+                    {store} ({count})
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
       
       {/* Products List */}
       <ScrollView 
         style={styles.content}
+        contentContainerStyle={filteredProducts.length === 0 ? styles.emptyContentContainer : undefined}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        onScroll={() => {
+          // Close dropdowns when scrolling
+          setShowCategoriesDropdown(false);
+          setShowStoresDropdown(false);
+          setShowSortDropdown(false);
+        }}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={true}
       >
         {filteredProducts.length === 0 ? (
-          <View style={styles.emptyState}>
+          <TouchableOpacity 
+            style={styles.emptyState}
+            onPress={() => setIsAddModalVisible(true)}
+            activeOpacity={0.7}
+          >
             <Text style={styles.emptyIcon}>🛒</Text>
             <Text style={styles.emptyTitle}>
               {currentFilter === 'all' ? 'Your trolley is empty' : 
@@ -581,104 +923,106 @@ const addProductDirectly = async (productData) => {
                `No items from ${currentFilter}`}
             </Text>
             <Text style={styles.emptyText}>
-              {currentFilter === 'all' ? 'Add some products to get started!' : 'Try a different filter or add new items'}
+              {currentFilter === 'all' && !searchQuery ? 'Tap anywhere to add your first product!' : 
+               searchQuery ? `No products found for "${searchQuery}"` :
+               'Try a different filter or add new items'}
             </Text>
-            <TouchableOpacity 
-              style={styles.emptyButton}
-              onPress={() => setIsAddModalVisible(true)}
-            >
-              <Text style={styles.emptyButtonText}>Add Product</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.emptyButton}>
+              <Text style={styles.emptyButtonText}>+ Add Product</Text>
+            </View>
+          </TouchableOpacity>
         ) : (
-          filteredProducts.map(product => (
-            <View key={product.id} style={styles.productCard}>
-              {/* Product Image */}
-              <View style={styles.productImageContainer}>
-                {product.image ? (
-                  <Image 
-                    source={{ uri: product.image }} 
-                    style={styles.productImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <View style={styles.noImageContainer}>
-                    <Text style={styles.noImageText}>No Image</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Product Info */}
-              <View style={styles.productInfo}>
-                <TouchableOpacity onPress={() => openProduct(product.url)}>
-                  <Text style={styles.productTitle} numberOfLines={2}>
-                    {product.title}
-                  </Text>
-                </TouchableOpacity>
-                
-                {/* Pricing */}
-                <View style={styles.productPricing}>
-                  {product.originalPrice && (
-                    <Text style={styles.originalPrice}>{product.originalPrice}</Text>
+          <>
+            {filteredProducts.map(product => (
+              <View key={product.id} style={styles.productCard}>
+                {/* Product Image */}
+                <TouchableOpacity 
+                  style={styles.productImageContainer}
+                  onPress={() => openProduct(product.url)}
+                  activeOpacity={0.7}
+                >
+                  {product.image ? (
+                    <Image 
+                      source={{ uri: product.image }} 
+                      style={styles.productImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.noImageContainer}>
+                      <Text style={styles.noImageText}>No Image</Text>
+                    </View>
                   )}
-                  <Text style={styles.salePrice}>{product.price}</Text>
-                </View>
-
-                {/* Store */}
-                <TouchableOpacity onPress={() => openStore(product.site)}>
-                  <Text style={styles.productSite}>{product.site}</Text>
                 </TouchableOpacity>
 
-                {/* Variants */}
-                {renderVariants(product.variants)}
-
-                {/* Date */}
-                <Text style={styles.productDate}>
-                  Added {new Date(product.dateAdded).toLocaleDateString()}
-                </Text>
-
-                {/* Footer */}
-                <View style={styles.productFooter}>
-                  <TouchableOpacity 
-                    style={styles.categoryTagContainer}
-                    onPress={() => openCategoryModal(product.id)}
-                  >
-                    <Text style={styles.categoryTag}>
-                      {product.category.charAt(0).toUpperCase() + product.category.slice(1)}
+                {/* Product Info */}
+                <View style={styles.productInfo}>
+                  <TouchableOpacity onPress={() => openProduct(product.url)}>
+                    <Text style={styles.productTitle} numberOfLines={2}>
+                      {product.title}
                     </Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => removeProduct(product.id)}>
-                    <Text style={styles.removeButton}>Remove</Text>
+                  
+                  {/* Pricing */}
+                  <View style={styles.productPricing}>
+                    {product.originalPrice && (
+                      <Text style={styles.originalPrice}>{product.originalPrice}</Text>
+                    )}
+                    <Text style={styles.salePrice}>{product.price}</Text>
+                  </View>
+
+                  {/* Store */}
+                  <TouchableOpacity onPress={() => openStore(product.site)}>
+                    <Text style={styles.productSite}>{product.site}</Text>
                   </TouchableOpacity>
+
+                  {/* Variants */}
+                  {renderVariants(product.variants)}
+
+                  {/* Date */}
+                  <Text style={styles.productDate}>
+                    Added {new Date(product.dateAdded).toLocaleDateString()}
+                  </Text>
+
+                  {/* Footer */}
+                  <View style={styles.productFooter}>
+                    <TouchableOpacity 
+                      style={styles.categoryTagContainer}
+                      onPress={() => openCategoryModal(product.id)}
+                    >
+                      <Text style={styles.categoryTag}>
+                        {product.category.charAt(0).toUpperCase() + product.category.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => removeProduct(product.id)}>
+                      <Text style={styles.removeButton}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))
+            ))}
+            
+            {/* Empty space that acts as add button */}
+            <TouchableOpacity 
+              style={styles.addProductArea}
+              onPress={() => setIsAddModalVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.addProductAreaText}>+ Tap to add another product</Text>
+            </TouchableOpacity>
+          </>
         )}
       </ScrollView>
 
       {/* Bottom Actions */}
       <View style={styles.bottomActions}>
-        <Text style={styles.itemCount}>
-          {filteredProducts.length} item{filteredProducts.length !== 1 ? 's' : ''}
-        </Text>
         <View style={styles.actionButtons}>
           <TouchableOpacity 
-            style={[styles.actionButton, styles.clearButton, products.length === 0 && styles.disabledButton]} 
+            style={[styles.actionButton, styles.removeAllButton, products.length === 0 && styles.disabledButton]} 
             onPress={clearAll}
             disabled={products.length === 0}
           >
-            <Text style={[styles.clearButtonText, products.length === 0 && styles.disabledButtonText]}>
-              Clear All
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.openAllButton, filteredProducts.length === 0 && styles.disabledButton]}
-            onPress={openAllProducts}
-            disabled={filteredProducts.length === 0}
-          >
-            <Text style={[styles.openAllButtonText, filteredProducts.length === 0 && styles.disabledButtonText]}>
-              Open All ({filteredProducts.length})
+            <Text style={[styles.removeAllButtonText, products.length === 0 && styles.disabledButtonText]}>
+              Remove All
             </Text>
           </TouchableOpacity>
         </View>
@@ -697,35 +1041,25 @@ const addProductDirectly = async (productData) => {
             
             <Text style={styles.inputLabel}>Product URL</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, styles.urlInput]}
               value={productUrl}
               onChangeText={setProductUrl}
               placeholder="Paste product link here..."
+              placeholderTextColor="#999"
               keyboardType="url"
               autoCapitalize="none"
               autoCorrect={false}
             />
             
-            <Text style={styles.inputLabel}>Category</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categorySelector}>
-              {customCategories.map(category => (
-                <TouchableOpacity
-                  key={category}
-                  style={[
-                    styles.categoryOption,
-                    selectedCategory === category && styles.selectedCategoryOption
-                  ]}
-                  onPress={() => setSelectedCategory(category)}
-                >
-                  <Text style={[
-                    styles.categoryOptionText,
-                    selectedCategory === category && styles.selectedCategoryOptionText
-                  ]}>
-                    {category.charAt(0).toUpperCase() + category.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            <Text style={styles.inputLabel}>Category (optional)</Text>
+            <TextInput
+              style={[styles.input, styles.categoryInput]}
+              value={selectedCategory}
+              onChangeText={setSelectedCategory}
+              placeholder="Enter category or leave blank for 'general'"
+              placeholderTextColor="#999"
+              autoCapitalize="words"
+            />
             
             <View style={styles.modalButtons}>
               <TouchableOpacity 
@@ -765,9 +1099,9 @@ const addProductDirectly = async (productData) => {
               </TouchableOpacity>
             </View>
             
-            <Text style={styles.inputLabel}>Select Category</Text>
+            <Text style={styles.inputLabel}>Select Existing Category</Text>
             <ScrollView style={styles.categoryList}>
-              {customCategories.map(category => (
+              {[...new Set(products.map(p => p.category || 'general'))].map(category => (
                 <TouchableOpacity
                   key={category}
                   style={styles.categoryListItem}
@@ -780,338 +1114,28 @@ const addProductDirectly = async (productData) => {
               ))}
             </ScrollView>
             
-            <Text style={styles.inputLabel}>Add New Category</Text>
+            <Text style={styles.inputLabel}>Or Create New Category</Text>
             <View style={styles.newCategoryContainer}>
               <TextInput
                 style={[styles.input, styles.newCategoryInput]}
                 value={newCategoryName}
                 onChangeText={setNewCategoryName}
                 placeholder="Enter new category name..."
+                placeholderTextColor="#999"
               />
               <TouchableOpacity 
                 style={styles.addCategoryButton}
                 onPress={addNewCategory}
               >
-                <Text style={styles.addCategoryButtonText}>Add</Text>
+                <Text style={styles.addCategoryButtonText}>Apply</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-{isScreenshotModalVisible && (
-        <ScreenshotCapture
-          onProductExtracted={(product) => {
-            addProductDirectly(product);
-            setIsScreenshotModalVisible(false);
-          }}
-          onClose={() => setIsScreenshotModalVisible(false)}
-        />
-      )}
-      
     </SafeAreaView>
   );
 }
-
-// Screenshot analysis function
-const analyzeScreenshot = async (imageUri) => {
-  console.log('📸 Starting screenshot analysis...');
-  
-  const BACKEND_URL = 'https://flat-monkeys-trade.loca.lt'; // Your backend URL
-  
-  try {
-    // Convert image to base64
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    
-    const reader = new FileReader();
-    reader.readAsDataURL(blob);
-    
-    return new Promise((resolve, reject) => {
-      reader.onload = async () => {
-        try {
-          const base64Image = reader.result;
-          
-          console.log('🤖 Sending to AI for analysis...');
-          
-          const analysisResponse = await fetch(`${BACKEND_URL}/analyze-screenshot`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ image: base64Image })
-          });
-          
-          if (!analysisResponse.ok) {
-            throw new Error(`AI analysis failed: ${analysisResponse.status}`);
-          }
-          
-          const result = await analysisResponse.json();
-          console.log('✅ AI analysis result:', result);
-          
-          resolve(result);
-          
-        } catch (error) {
-          console.error('❌ Analysis error:', error);
-          reject(error);
-        }
-      };
-      
-      reader.onerror = reject;
-    });
-    
-  } catch (error) {
-    console.error('❌ Screenshot processing error:', error);
-    throw error;
-  }
-};
-
-// Screenshot Capture Component
-// Screenshot Capture Component (Expo version)
-const ScreenshotCapture = ({ onProductExtracted, onClose }) => {
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [capturedImage, setCapturedImage] = useState(null);
-
-  const handleImagePicker = () => {
-    Alert.alert(
-      'Add Product Screenshot',
-      'Choose how to capture the product',
-      [
-        { text: 'Camera', onPress: () => openCamera() },
-        { text: 'Photo Library', onPress: () => openLibrary() },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
-  };
-
-  const openCamera = async () => {
-    try {
-      // Request camera permissions
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Camera permission is required to take photos');
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      handleImageResponse(result);
-    } catch (error) {
-      console.error('Camera error:', error);
-      Alert.alert('Error', 'Failed to open camera');
-    }
-  };
-
-  const openLibrary = async () => {
-    try {
-      // Request media library permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Photo library permission is required');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      handleImageResponse(result);
-    } catch (error) {
-      console.error('Library error:', error);
-      Alert.alert('Error', 'Failed to open photo library');
-    }
-  };
-
-  const handleImageResponse = (result) => {
-    if (result.canceled || !result.assets || result.assets.length === 0) {
-      return;
-    }
-
-    const asset = result.assets[0];
-    setCapturedImage(asset);
-    analyzeImage(asset.uri);
-  };
-
-  const analyzeImage = async (imageUri) => {
-    setIsAnalyzing(true);
-    
-    // Simulate AI analysis with a delay (for testing)
-    console.log('📸 Starting mock analysis for:', imageUri);
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    try {
-      // For testing, we'll just create a mock product
-      const productData = {
-        id: Date.now().toString(),
-        title: 'Product from Screenshot (Expo Test)',
-        price: '$29.99',
-        originalPrice: null,
-        site: 'Screenshot',
-        image: imageUri, // Use the captured screenshot as product image
-        category: 'general',
-        dateAdded: new Date().toISOString(),
-        extractionMethod: 'screenshot_expo_test',
-        confidence: 0.8
-      };
-
-      console.log('✅ Mock product created:', productData);
-
-      Alert.alert(
-        'Screenshot Captured! 📸',
-        `Mock Product: ${productData.title}\nPrice: ${productData.price}\n\nThis is test mode - no AI analysis yet.`,
-        [
-          { text: 'Edit Info', onPress: () => showEditDialog(productData) },
-          { text: 'Save to Trolley', onPress: () => onProductExtracted(productData) }
-        ]
-      );
-
-    } catch (error) {
-      console.error('❌ Mock analysis error:', error);
-      Alert.alert(
-        'Test Mode',
-        'This is test mode. You can still add the screenshot manually.',
-        [
-          { text: 'Try Again', onPress: handleImagePicker },
-          { text: 'Add Manually', onPress: () => addManually(imageUri) }
-        ]
-      );
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
-  const showEditDialog = (productData) => {
-    // For now, just save the product
-    onProductExtracted(productData);
-  };
-
-  const addManually = (imageUri) => {
-    const manualProduct = {
-      id: Date.now().toString(),
-      title: 'Product from Screenshot (Manual)',
-      price: 'N/A',
-      site: 'Screenshot',
-      image: imageUri,
-      category: 'general',
-      dateAdded: new Date().toISOString(),
-      extractionMethod: 'manual'
-    };
-    
-    onProductExtracted(manualProduct);
-  };
-
-  return (
-    <Modal visible={true} transparent={true} animationType="slide">
-      <View style={screenshotStyles.modalOverlay}>
-        <View style={screenshotStyles.modalContent}>
-          <Text style={screenshotStyles.modalTitle}>📸 Add Product Screenshot</Text>
-          
-          {capturedImage && (
-            <Image source={{ uri: capturedImage.uri }} style={screenshotStyles.previewImage} />
-          )}
-          
-          {isAnalyzing ? (
-            <View style={screenshotStyles.analyzingContainer}>
-              <ActivityIndicator size="large" color="#212529" />
-              <Text style={screenshotStyles.analyzingText}>🤖 Mock AI analyzing screenshot...</Text>
-              <Text style={screenshotStyles.analyzingSubtext}>This is test mode (2 seconds)</Text>
-            </View>
-          ) : (
-            <View style={screenshotStyles.buttonContainer}>
-              <TouchableOpacity style={screenshotStyles.primaryButton} onPress={handleImagePicker}>
-                <Text style={screenshotStyles.primaryButtonText}>📸 Capture Product</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={screenshotStyles.secondaryButton} onPress={onClose}>
-                <Text style={screenshotStyles.secondaryButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-      </View>
-    </Modal>
-  );
-};
-// Screenshot styles
-const screenshotStyles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
-    margin: 20,
-    maxWidth: 350,
-    width: '90%',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  previewImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 8,
-    marginBottom: 16,
-    resizeMode: 'contain',
-  },
-  analyzingContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  analyzingText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginTop: 12,
-    textAlign: 'center',
-  },
-  analyzingSubtext: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-    textAlign: 'center',
-  },
-  buttonContainer: {
-    gap: 12,
-  },
-  primaryButton: {
-    backgroundColor: '#212529',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  secondaryButton: {
-    backgroundColor: '#f8f9fa',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-  },
-  secondaryButtonText: {
-    color: '#495057',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
 
 const styles = StyleSheet.create({
   container: {
@@ -1132,13 +1156,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    padding: 12, // Reduced from 20
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
   },
   title: {
-    fontSize: 24,
+    fontSize: 20, // Reduced from 24
     fontWeight: 'bold',
     color: '#212529',
   },
@@ -1161,15 +1185,15 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#f8f9fa',
-    marginHorizontal: 20,
-    marginVertical: 16,
+    marginHorizontal: 16, // Reduced from 20
+    marginVertical: 8, // Reduced from 16
     borderRadius: 8,
-    padding: 4,
+    padding: 2, // Reduced from 4
   },
   tab: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 6, // Reduced from 10
+    paddingHorizontal: 12, // Reduced from 16
     borderRadius: 6,
     alignItems: 'center',
   },
@@ -1217,6 +1241,10 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  emptyContentContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
   emptyState: {
     flex: 1,
     justifyContent: 'center',
@@ -1252,6 +1280,23 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  addProductArea: {
+    minHeight: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 20,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+    borderStyle: 'dashed',
+    backgroundColor: '#f8f9fa',
+  },
+  addProductAreaText: {
+    color: '#6c757d',
+    fontSize: 16,
+    fontWeight: '500',
   },
   productCard: {
     backgroundColor: '#fff',
@@ -1368,29 +1413,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   actionButtons: {
-    flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'center',
   },
   actionButton: {
-    flex: 1,
     paddingVertical: 12,
+    paddingHorizontal: 24,
     borderRadius: 8,
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'center',
   },
-  clearButton: {
-    backgroundColor: '#dc3545',
-  },
-  clearButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  openAllButton: {
+  removeAllButton: {
     backgroundColor: '#212529',
   },
-  openAllButtonText: {
+  removeAllButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
@@ -1443,29 +1479,99 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 20,
   },
-  categorySelector: {
-    marginBottom: 20,
+  urlInput: {
+    color: '#212529', // Dark text color so you can see what you're typing
   },
-  categoryOption: {
-    backgroundColor: '#f8f9fa',
+  categoryInput: {
+    color: '#212529', // Dark text color
+  },
+  dropdownContainer: {
+    position: 'absolute',
+    top: 50, // Reduced from 60 due to smaller tab container
+    left: 16, // Reduced from 20 to match margins
+    right: 16, // Reduced from 20 to match margins
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000, // Make sure it appears above other content
+  },
+  dropdown: {
+    maxHeight: 250,
+    borderRadius: 8,
+  },
+  dropdownItem: {
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
-    marginRight: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  activeDropdownItem: {
+    backgroundColor: '#f8f9fa',
+  },
+  dropdownText: {
+    fontSize: 14,
+    color: '#495057',
+  },
+  activeDropdownText: {
+    color: '#212529',
+    fontWeight: '600',
+  },
+  searchSortContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16, // Reduced from 20
+    paddingVertical: 6, // Reduced from 10
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef',
+    gap: 12,
+  },
+  searchContainer: {
+    flex: 2, // Takes up 2/3 of the space
+  },
+  searchInput: {
     borderWidth: 1,
     borderColor: '#dee2e6',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#212529',
+    backgroundColor: '#fff',
   },
-  selectedCategoryOption: {
-    backgroundColor: '#212529',
-    borderColor: '#212529',
+  sortButton: {
+    flex: 1, // Takes up 1/3 of the space
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  categoryOptionText: {
+  sortButtonText: {
     fontSize: 14,
     color: '#495057',
     fontWeight: '500',
+    textAlign: 'center',
   },
-  selectedCategoryOptionText: {
-    color: '#fff',
+  sortDropdownContainer: {
+    position: 'absolute',
+    top: 170, // Position it below search/sort bar
+    right: 20,
+    minWidth: 140, // Ensure minimum width for single line text
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
   },
   categoryList: {
     maxHeight: 200,
