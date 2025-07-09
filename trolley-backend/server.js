@@ -97,6 +97,110 @@ app.put('/api/products/:id', (req, res) => {
   }
 });
 
+// ===== SYNC ENDPOINTS =====
+
+// GET /api/sync - Get all products for sync
+app.get('/api/sync', (req, res) => {
+  try {
+    console.log('📥 Sync GET request received');
+    
+    const products = statements.getAllProducts.all();
+    const parsedProducts = products.map(product => ({
+      ...product,
+      variants: product.variants ? JSON.parse(product.variants) : {}
+    }));
+    
+    const syncData = {
+      products: parsedProducts,
+      timestamp: new Date().toISOString(),
+      count: parsedProducts.length
+    };
+    
+    console.log(`📤 Sending ${parsedProducts.length} products for sync`);
+    res.json(syncData);
+    
+  } catch (error) {
+    console.error('Error in sync GET:', error);
+    res.status(500).json({ error: 'Failed to get sync data' });
+  }
+});
+
+// POST /api/sync - Upload products for sync
+app.post('/api/sync', (req, res) => {
+  try {
+    const { products, deviceId } = req.body;
+    
+    console.log(`📥 Sync POST request from device: ${deviceId}`);
+    console.log(`📊 Received ${products?.length || 0} products`);
+    
+    if (!products || !Array.isArray(products)) {
+      return res.status(400).json({ error: 'Products array is required' });
+    }
+    
+    // Simple approach: Clear all and insert new products
+    // This ensures both apps have exactly the same data
+    const db = require('./database').db;
+    
+    // Start transaction for safety
+    const deleteAll = db.prepare('DELETE FROM products');
+    deleteAll.run();
+    
+    let insertedCount = 0;
+    products.forEach(product => {
+      try {
+        // Ensure required fields exist
+        const productData = {
+          id: product.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          url: product.url,
+          title: product.title || 'Unknown Product',
+          price: product.price || 'N/A',
+          originalPrice: product.originalPrice || null,
+          image: product.image || null,
+          site: product.site || new URL(product.url).hostname,
+          displaySite: product.displaySite || product.site || new URL(product.url).hostname,
+          category: product.category || 'general',
+          variants: JSON.stringify(product.variants || {}),
+          dateAdded: product.dateAdded || new Date().toISOString()
+        };
+        
+        statements.insertProduct.run(
+          productData.id,
+          productData.url,
+          productData.title,
+          productData.price,
+          productData.originalPrice,
+          productData.image,
+          productData.site,
+          productData.displaySite,
+          productData.category,
+          productData.variants,
+          productData.dateAdded
+        );
+        
+        insertedCount++;
+      } catch (error) {
+        console.error('Error inserting product:', product.url, error.message);
+      }
+    });
+    
+    console.log(`✅ Sync completed: ${insertedCount} products inserted`);
+    
+    res.json({
+      success: true,
+      inserted: insertedCount,
+      deviceId: deviceId,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Error in sync POST:', error);
+    res.status(500).json({ 
+      error: 'Failed to process sync upload',
+      details: error.message 
+    });
+  }
+});
+
 // Universal product scraping with maximum coverage
 async function scrapeProduct(url, retryCount = 0) {
   console.log(`🕷️ Universal scraping attempt ${retryCount + 1} for: ${url}`);
@@ -753,7 +857,15 @@ app.post('/extract-product', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Universal Pure Scraper running on port ${PORT}`);
-  console.log(`🕷️ No AI dependencies - Pure scraping only`);
-  console.log(`💪 Built for maximum compatibility and reliability`);
+  console.log(`🚀 Trolley Backend with Sync API running on port ${PORT}`);
+  console.log(`📊 Available endpoints:`);
+  console.log(`   GET  /health - Health check`);
+  console.log(`   GET  /api/products - Get all products`);
+  console.log(`   POST /api/products - Add product`);
+  console.log(`   PUT  /api/products/:id - Update product`);
+  console.log(`   DELETE /api/products/:id - Delete product`);
+  console.log(`   POST /api/scrape - Scrape product info`);
+  console.log(`   🔄 SYNC ENDPOINTS:`);
+  console.log(`   GET  /api/sync - Get all products for sync`);
+  console.log(`   POST /api/sync - Upload products for sync`);
 });
