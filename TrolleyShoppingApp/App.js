@@ -5,10 +5,7 @@
     try {
       console.log('🕷️ Using trolley-backend universal scraper...');
       
-      // Use fixed subdomain tunnel URL for development
-      const BACKEND_URL = __DEV__ 
-        ? 'https://trolley-backend.loca.lt'  // Fixed subdomain - always the same!
-        : 'https://your-backend.herokuapp.com';
+
       
       console.log('📡 Connecting to backend:', BACKEND_URL);
       
@@ -98,6 +95,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const STORAGE_KEY = '@trolley_products';
 const { width } = Dimensions.get('window');
 
+const BACKEND_URL = __DEV__ 
+  ? 'https://miniature-rotary-phone-jjgwwv6pv4r735j99-3000.app.github.dev'  // ← NEW URL
+  : 'https://your-production-url.com';
+
 export default function App() {
   const [products, setProducts] = useState([]);
   const [customCategories, setCustomCategories] = useState([]);
@@ -117,6 +118,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
   const [showSortDropdown, setShowSortDropdown] = useState(false);
+  // 🔄 NEW SYNC STATE VARIABLES
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('ready'); // 'ready', 'syncing', 'success', 'error'
 
   // FIXED AUTOMATIC URL HANDLING
   const handleIncomingURL = async (url) => {
@@ -245,10 +250,46 @@ export default function App() {
     }
   };
 
-  // Load products when app starts
-  useEffect(() => {
-    loadProducts();
-  }, []);
+// Load products when app starts AND start auto-sync
+useEffect(() => {
+  const initializeApp = async () => {
+    await loadProducts();
+    
+    // Initial sync after loading - with longer delay
+    setTimeout(() => {
+      console.log('🚀 Initial sync starting...');
+      syncWithBackend();
+    }, 5000); // Wait 5 seconds after app loads
+  };
+  
+  initializeApp();
+}, []); // Empty dependency array
+
+// Auto-sync every 30 seconds when app is active
+useEffect(() => {
+  const syncInterval = setInterval(() => {
+    // Only sync if we're not already syncing and have loaded products
+    if (!isSyncing && !isLoading) {
+      console.log('⏰ Auto-sync triggered');
+      syncWithBackend();
+    }
+  }, 30000); // 30 seconds
+
+  return () => clearInterval(syncInterval);
+}, [isSyncing, isLoading]); // Remove products dependency to avoid loops
+
+// Remove or comment out the "sync when products change" useEffect temporarily
+/*
+useEffect(() => {
+  if (!isLoading && products.length > 0) {
+    const timeoutId = setTimeout(() => {
+      syncWithBackend();
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }
+}, [products]);
+*/
 
   // IMPROVED URL LISTENER
   useEffect(() => {
@@ -328,7 +369,167 @@ export default function App() {
   const onRefresh = async () => {
     setRefreshing(true);
     await loadProducts();
+    await syncWithBackend(); // Also sync when user pulls to refresh
     setRefreshing(false);
+  };
+
+  // 🔄 SYNC FUNCTIONS
+
+  // Upload local products to backend
+  // Upload local products to backend
+// Upload local products to backend
+const syncUp = async () => {
+  try {
+    console.log('📤 Syncing UP to backend...');
+    
+    // Get the latest products from AsyncStorage
+    const saved = await AsyncStorage.getItem(STORAGE_KEY);
+    let currentProducts = [];
+    
+    if (saved) {
+      const data = JSON.parse(saved);
+      currentProducts = data.products || [];
+    }
+    
+    console.log('📊 Uploading', currentProducts.length, 'products to backend');
+    console.log('🔍 Parsed products count:', currentProducts.length);
+    console.log('🔍 First few products:', currentProducts.slice(0, 2));
+    
+    // Clean the products data - remove unexpected fields
+    const cleanedProducts = currentProducts.map(product => ({
+      id: product.id,
+      url: product.url,
+      title: product.title,
+      price: product.price,
+      originalPrice: product.originalPrice,
+      image: product.image,
+      site: product.site,
+      displaySite: product.displaySite,
+      category: product.category || 'general',
+      variants: product.variants || {},
+      dateAdded: product.dateAdded
+      // Note: removed createdAt and other unexpected fields
+    }));
+    
+    console.log('🧹 Cleaned products for backend:', cleanedProducts.length);
+    
+    const response = await fetch(`${BACKEND_URL}/api/sync`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        products: cleanedProducts,  // Use cleaned products
+        deviceId: 'android-app',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Backend error response:', errorText);
+      throw new Error(`Sync upload failed: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ Sync UP completed:', result.inserted, 'products');
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Sync UP failed:', error);
+    throw error;
+  }
+};
+
+  // Download products from backend
+  const syncDown = async () => {
+    try {
+      console.log('📥 Syncing DOWN from backend...');
+      
+      const response = await fetch(`${BACKEND_URL}/api/sync`);
+      
+      if (!response.ok) {
+        throw new Error(`Sync download failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('📊 Downloaded', result.products.length, 'products from backend');
+      
+      // Update local products
+      setProducts(result.products);
+      
+      // Save to local storage
+      const data = {
+        products: result.products,
+        customCategories,
+        lastSync: new Date().toISOString()
+      };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      
+      console.log('✅ Sync DOWN completed');
+      return result.products;
+      
+    } catch (error) {
+      console.error('❌ Sync DOWN failed:', error);
+      throw error;
+    }
+  };
+
+  // Full bidirectional sync
+  const syncWithBackend = async () => {
+    console.log('🔍 SYNC TRIGGERED - Stack trace:', new Error().stack);
+  
+    if (isSyncing) {
+      console.log('⚠️ Sync already in progress, skipping');
+      return;
+    }
+
+    setIsSyncing(true);
+    setSyncStatus('syncing');
+    
+    try {
+      console.log('🔄 Starting full sync...');
+      
+      // Step 1: Upload local products to backend
+      await syncUp();
+      
+      // Step 2: Download latest products from backend
+      const syncedProducts = await syncDown();
+      
+      // Step 3: Update sync status
+      setLastSyncTime(new Date());
+      setSyncStatus('success');
+      
+      console.log(`✅ Full sync completed: ${syncedProducts.length} products`);
+      
+    } catch (error) {
+      console.error('❌ Full sync failed:', error);
+      setSyncStatus('error');
+      
+      // Show user-friendly error
+      Alert.alert(
+        'Sync Failed',
+        `Could not sync with Chrome extension: ${error.message}`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Retry', onPress: () => syncWithBackend() }
+        ]
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Manual sync function (for sync button)
+  const handleManualSync = async () => {
+    await syncWithBackend();
+    
+    if (syncStatus === 'success') {
+      Alert.alert(
+        'Sync Complete! ✅',
+        `Your products are now synchronized with the Chrome extension.`,
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   // FIXED EXTRACT PRODUCT INFO FUNCTION
@@ -338,10 +539,7 @@ export default function App() {
     try {
       console.log('🕷️ Using trolley-backend universal scraper...');
       
-      // Use fixed subdomain tunnel URL for development
-      const BACKEND_URL = __DEV__ 
-        ? 'https://trolley-backend.loca.lt'  // Fixed subdomain - always the same!
-        : 'https://your-backend.herokuapp.com';
+ 
       
       const response = await fetch(`${BACKEND_URL}/extract-product`, {
         method: 'POST',
@@ -721,12 +919,55 @@ export default function App() {
       </SafeAreaView>
     );
   }
-
+const formatSyncTime = (time) => {
+    const now = new Date();
+    const syncTime = new Date(time);
+    const diffMs = now - syncTime;
+    const diffMinutes = Math.floor(diffMs / 60000);
+    
+    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return syncTime.toLocaleDateString();
+  };
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>🛒 Trolley v2</Text>
+        <View style={styles.syncStatus}>
+      {isSyncing && (
+        <View style={styles.syncIndicator}>
+          <ActivityIndicator size="small" color="#007AFF" />
+          <Text style={styles.syncText}>Syncing...</Text>
+        </View>
+      )}
+      
+      {!isSyncing && syncStatus === 'success' && lastSyncTime && (
+        <TouchableOpacity onPress={handleManualSync} style={styles.syncButton}>
+          <Text style={styles.syncText}>
+            ✅ Synced {formatSyncTime(lastSyncTime)}
+          </Text>
+        </TouchableOpacity>
+      )}
+      
+      {!isSyncing && syncStatus === 'error' && (
+        <TouchableOpacity onPress={handleManualSync} style={styles.syncButton}>
+          <Text style={[styles.syncText, { color: '#FF3B30' }]}>
+            ❌ Sync Failed - Tap to Retry
+          </Text>
+        </TouchableOpacity>
+      )}
+      
+      {!isSyncing && syncStatus === 'ready' && (
+        <TouchableOpacity onPress={handleManualSync} style={styles.syncButton}>
+          <Text style={styles.syncText}>
+            🔄 Tap to Sync
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
         <View style={styles.headerButtons}>
           <TouchableOpacity style={styles.addButton} onPress={() => setIsAddModalVisible(true)}>
             <Text style={styles.addButtonText}>+</Text>
@@ -1638,5 +1879,25 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+syncStatus: {
+    alignItems: 'center',
+    marginVertical: 5,
+  },
+  syncIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+  },
+  syncText: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '500',
   },
 });
