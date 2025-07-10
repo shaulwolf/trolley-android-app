@@ -123,68 +123,100 @@ export default function App() {
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncStatus, setSyncStatus] = useState('ready'); // 'ready', 'syncing', 'success', 'error'
 
-  // FIXED AUTOMATIC URL HANDLING
-  const handleIncomingURL = async (url) => {
-    console.log('📱 Received URL for auto-addition:', url);
+// FIXED AUTOMATIC URL HANDLING - Add this to replace your existing handleIncomingURL function
+const handleIncomingURL = async (url) => {
+  console.log('📱 Received URL for auto-addition:', url);
+  
+  try {
+    let extractedUrl = null;
     
-    try {
-      let extractedUrl = null;
-      
-      // Extract URL from different sharing formats
-      if (typeof url === 'string') {
-        // Handle Expo development client URLs
-        if (url.includes('exp+trolley-shopping-app://expo-development-client/')) {
-          console.log('📱 Expo development client URL detected');
-          const urlParams = new URLSearchParams(url.split('?')[1]);
-          extractedUrl = urlParams.get('url');
-          if (extractedUrl) {
-            extractedUrl = decodeURIComponent(extractedUrl);
-            console.log('📱 Decoded URL from Expo client:', extractedUrl);
-          }
-        }
-        // Direct HTTP URL sharing
-        else if (url.startsWith('http://') || url.startsWith('https://')) {
-          extractedUrl = url;
-        }
-        // Custom scheme: trolley://add?url=https://example.com
-        else if (url.startsWith('trolley://')) {
-          const urlObj = new URL(url);
-          extractedUrl = urlObj.searchParams.get('url');
-        }
-        // Android intent URL
-        else if (url.includes('intent://')) {
-          const urlMatch = url.match(/intent:\/\/(.+?)#/);
-          if (urlMatch) {
-            extractedUrl = 'https://' + urlMatch[1];
-          }
-        }
-        // Text sharing with URL embedded
-        else {
-          const httpMatch = url.match(/(https?:\/\/[^\s]+)/);
-          if (httpMatch) {
-            extractedUrl = httpMatch[1];
-          }
+    // Extract URL from different sharing formats
+    if (typeof url === 'string') {
+      // Handle Expo development client URLs
+      if (url.includes('exp+trolley-shopping-app://expo-development-client/')) {
+        console.log('📱 Expo development client URL detected');
+        const urlParams = new URLSearchParams(url.split('?')[1]);
+        extractedUrl = urlParams.get('url');
+        if (extractedUrl) {
+          extractedUrl = decodeURIComponent(extractedUrl);
+          console.log('📱 Decoded URL from Expo client:', extractedUrl);
         }
       }
+      // Direct HTTP URL sharing
+      else if (url.startsWith('http://') || url.startsWith('https://')) {
+        extractedUrl = url;
+      }
+      // Custom scheme: trolley://add?url=https://example.com
+      else if (url.startsWith('trolley://')) {
+        const urlObj = new URL(url);
+        extractedUrl = urlObj.searchParams.get('url');
+      }
+      // Android intent URL
+      else if (url.includes('intent://')) {
+        const urlMatch = url.match(/intent:\/\/(.+?)#/);
+        if (urlMatch) {
+          extractedUrl = 'https://' + urlMatch[1];
+        }
+      }
+      // Text sharing with URL embedded
+      else {
+        const httpMatch = url.match(/(https?:\/\/[^\s]+)/);
+        if (httpMatch) {
+          extractedUrl = httpMatch[1];
+        }
+      }
+    }
+    
+    if (extractedUrl) {
+      console.log('📱 Extracted URL:', extractedUrl);
       
-      if (extractedUrl) {
-        console.log('📱 Extracted URL:', extractedUrl);
-        
-        // Show loading indicator
-        Alert.alert('Adding Product', 'Extracting product information...', [], { cancelable: false });
-        
-        // Automatically add the product
-        await addProductFromUrl(extractedUrl);
-      } else {
-        console.log('❌ Could not extract URL from:', url);
+      // ===== FILTER OUT DEVELOPMENT URLS =====
+      const isDevelopmentUrl = 
+        extractedUrl.includes('.exp.direct') ||           // Expo development
+        extractedUrl.includes('expo-development') ||      // Expo development
+        extractedUrl.includes('localhost') ||             // Local development
+        extractedUrl.includes('127.0.0.1') ||            // Local IP
+        extractedUrl.includes('192.168.') ||             // Local network
+        extractedUrl.includes('10.0.') ||                // Local network
+        extractedUrl.includes('.ngrok.') ||              // Ngrok tunnels
+        extractedUrl.includes('codespace') ||            // GitHub Codespaces
+        extractedUrl.includes('.github.dev') ||          // GitHub dev domains
+        extractedUrl.includes('stackblitz') ||           // StackBlitz
+        extractedUrl.includes('codesandbox') ||          // CodeSandbox
+        extractedUrl.includes('replit') ||               // Replit
+        extractedUrl.includes('vercel.app') ||           // Vercel preview
+        extractedUrl.includes('netlify.app');            // Netlify preview
+      
+      if (isDevelopmentUrl) {
+        console.log('🚫 Development URL detected, ignoring:', extractedUrl);
+        console.log('📱 This appears to be a development/preview URL, not a real product URL');
+        return; // Exit early, don't process development URLs
+      }
+      
+      // Proceed with normal product addition for real URLs
+      console.log('✅ Valid product URL detected, proceeding with extraction...');
+      
+      // Show loading indicator
+      Alert.alert('Adding Product', 'Extracting product information...', [], { cancelable: false });
+      
+      // Automatically add the product
+      await addProductFromUrl(extractedUrl);
+    } else {
+      console.log('❌ Could not extract URL from:', url);
+      // Don't show error for development URLs - just log it
+      if (!url.includes('.exp.direct')) {
         Alert.alert('Error', 'Could not extract product URL from shared content');
       }
-      
-    } catch (error) {
-      console.log('❌ Error handling shared URL:', error);
+    }
+    
+  } catch (error) {
+    console.log('❌ Error handling shared URL:', error);
+    // Only show error for non-development URLs
+    if (!url.includes('.exp.direct')) {
       Alert.alert('Error', `Failed to process shared URL: ${error.message}`);
     }
-  };
+  }
+};
 
   // NEW FUNCTION: Add product directly from URL (automatic)
   const addProductFromUrl = async (url) => {
@@ -374,150 +406,188 @@ useEffect(() => {
   };
 
   // 🔄 SYNC FUNCTIONS
+// ===== CLEAN SYNC FUNCTIONS - REPLACE EVERYTHING =====
 
-  // Upload local products to backend
-  // Upload local products to backend
-// Upload local products to backend
+// Enhanced upload function
 const syncUp = async () => {
   try {
-    console.log('📤 Syncing UP to backend...');
+    console.log('📤 Android: Deletion-aware smart sync UP...');
     
-    // Get the latest products from AsyncStorage
+    // Step 1: Get what we had before (to detect deletions)
     const saved = await AsyncStorage.getItem(STORAGE_KEY);
-    let currentProducts = [];
+    let localProducts = [];
+    let previousProducts = [];
     
     if (saved) {
       const data = JSON.parse(saved);
-      currentProducts = data.products || [];
+      localProducts = data.products || [];
+      previousProducts = data.previousProducts || data.products || []; // Track what we had before
     }
     
-    console.log('📊 Uploading', currentProducts.length, 'products to backend');
-    console.log('🔍 Parsed products count:', currentProducts.length);
-    console.log('🔍 First few products:', currentProducts.slice(0, 2));
+    // Step 2: Get current remote products
+    console.log('📥 Getting current backend state...');
+    const getResponse = await fetch(`${BACKEND_URL}/api/sync`);
+    if (!getResponse.ok) {
+      throw new Error(`Failed to get current state: ${getResponse.status}`);
+    }
+    const currentState = await getResponse.json();
+    const remoteProducts = currentState.products || [];
     
-    // Clean the products data - remove unexpected fields
-    const cleanedProducts = currentProducts.map(product => ({
-      id: product.id,
-      url: product.url,
-      title: product.title,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      image: product.image,
-      site: product.site,
-      displaySite: product.displaySite,
-      category: product.category || 'general',
-      variants: product.variants || {},
-      dateAdded: product.dateAdded
-      // Note: removed createdAt and other unexpected fields
+    // Step 3: Detect local deletions
+    const locallyDeleted = previousProducts.filter(prev => 
+      !localProducts.some(current => current.id === prev.id)
+    );
+    
+    if (locallyDeleted.length > 0) {
+      console.log('🗑️ Detected local deletions:', locallyDeleted.map(p => p.title));
+    }
+    
+    // Step 4: Smart merge - add remote products BUT respect local deletions
+    const mergedProducts = [...localProducts];
+    
+    remoteProducts.forEach(remoteProduct => {
+      const existsLocally = mergedProducts.some(local => local.id === remoteProduct.id);
+      const wasLocallyDeleted = locallyDeleted.some(deleted => deleted.id === remoteProduct.id);
+      
+      if (!existsLocally && !wasLocallyDeleted) {
+        console.log('➕ Adding remote product:', remoteProduct.title);
+        mergedProducts.push(remoteProduct);
+      } else if (wasLocallyDeleted) {
+        console.log('🗑️ Respecting local deletion of:', remoteProduct.title);
+      }
+    });
+    
+    // Step 5: Prepare for upload
+    const enhancedProducts = mergedProducts.map(product => ({
+      ...product,
+      deviceSource: product.deviceSource || 'android-app',
+      lastModified: product.lastModified || product.dateAdded || new Date().toISOString(),
+      category: product.category || 'general'
     }));
     
-    console.log('🧹 Cleaned products for backend:', cleanedProducts.length);
+    console.log('📊 Android: Deletion-aware upload -', enhancedProducts.length, 'products');
+    console.log('🔄 Preserved additions, respected deletions');
     
+    // Step 6: Upload merged state
     const response = await fetch(`${BACKEND_URL}/api/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        products: cleanedProducts,  // Use cleaned products
-        deviceId: 'android-app',
+        products: enhancedProducts,
+        deviceId: 'android-app'
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ Backend error response:', errorText);
-      throw new Error(`Sync upload failed: ${response.status} - ${errorText}`);
+      throw new Error(`Deletion-aware sync failed: ${response.status} - ${errorText}`);
     }
 
     const result = await response.json();
-    console.log('✅ Sync UP completed:', result.inserted, 'products');
+    console.log('✅ Android: Deletion-aware sync completed:', result.inserted, 'products');
+    
+    // Step 7: Update local state and remember current state for next deletion detection
+    setProducts(enhancedProducts);
+    const dataToSave = {
+      products: enhancedProducts,
+      previousProducts: enhancedProducts, // Remember this state for next sync
+      customCategories,
+      lastSync: new Date().toISOString()
+    };
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    
     return result;
     
   } catch (error) {
-    console.error('❌ Sync UP failed:', error);
+    console.error('❌ Android: Deletion-aware sync failed:', error);
     throw error;
   }
 };
 
-  // Download products from backend
-  const syncDown = async () => {
-    try {
-      console.log('📥 Syncing DOWN from backend...');
-      
-      const response = await fetch(`${BACKEND_URL}/api/sync`);
-      
-      if (!response.ok) {
-        throw new Error(`Sync download failed: ${response.status}`);
-      }
 
-      const result = await response.json();
-      console.log('📊 Downloaded', result.products.length, 'products from backend');
-      
-      // Update local products
-      setProducts(result.products);
-      
-      // Save to local storage
-      const data = {
-        products: result.products,
-        customCategories,
-        lastSync: new Date().toISOString()
-      };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-      
-      console.log('✅ Sync DOWN completed');
-      return result.products;
-      
-    } catch (error) {
-      console.error('❌ Sync DOWN failed:', error);
-      throw error;
-    }
-  };
-
-  // Full bidirectional sync
-  const syncWithBackend = async () => {
-    console.log('🔍 SYNC TRIGGERED - Stack trace:', new Error().stack);
-  
-    if (isSyncing) {
-      console.log('⚠️ Sync already in progress, skipping');
-      return;
-    }
-
-    setIsSyncing(true);
-    setSyncStatus('syncing');
+// Download function (keep existing)
+// Simple complete state sync - replaces everything
+const syncDown = async () => {
+  try {
+    console.log('📥 Syncing DOWN - complete state replacement...');
     
-    try {
-      console.log('🔄 Starting full sync...');
-      
-      // Step 1: Upload local products to backend
-      await syncUp();
-      
-      // Step 2: Download latest products from backend
-      const syncedProducts = await syncDown();
-      
-      // Step 3: Update sync status
-      setLastSyncTime(new Date());
-      setSyncStatus('success');
-      
-      console.log(`✅ Full sync completed: ${syncedProducts.length} products`);
-      
-    } catch (error) {
-      console.error('❌ Full sync failed:', error);
-      setSyncStatus('error');
-      
-      // Show user-friendly error
-      Alert.alert(
-        'Sync Failed',
-        `Could not sync with Chrome extension: ${error.message}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Retry', onPress: () => syncWithBackend() }
-        ]
-      );
-    } finally {
-      setIsSyncing(false);
+    const response = await fetch(`${BACKEND_URL}/api/sync`);
+    
+    if (!response.ok) {
+      throw new Error(`Sync download failed: ${response.status}`);
     }
-  };
+
+    const result = await response.json();
+    const remoteProducts = result.products || [];
+    
+    console.log('📊 Downloaded', remoteProducts.length, 'products from backend');
+    console.log('🔄 Replacing local state completely with remote state');
+    
+    // COMPLETE REPLACEMENT - this handles deletions automatically
+    setProducts(remoteProducts);
+    
+    // Save to local storage
+    const data = {
+      products: remoteProducts,  // Replace everything
+      customCategories,
+      lastSync: new Date().toISOString()
+    };
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    
+    console.log('✅ Sync DOWN completed - state replaced');
+    return remoteProducts;
+    
+  } catch (error) {
+    console.error('❌ Sync DOWN failed:', error);
+    throw error;
+  }
+};
+
+// Main sync function
+const syncWithBackend = async () => {
+  console.log('🔍 Enhanced SYNC TRIGGERED');
+  
+  if (isSyncing) {
+    console.log('⚠️ Enhanced sync already in progress, skipping');
+    return;
+  }
+
+  setIsSyncing(true);
+  setSyncStatus('syncing');
+  
+  try {
+    console.log('🔄 Starting enhanced bidirectional sync...');
+    
+    // Step 1: Upload local products to backend
+    await syncUp();
+    
+    // Step 2: Download latest products from backend
+    const syncedProducts = await syncDown();
+    
+    // Step 3: Update sync status
+    setLastSyncTime(new Date());
+    setSyncStatus('success');
+    
+    console.log(`✅ Enhanced sync completed: ${syncedProducts.length} products`);
+    
+  } catch (error) {
+    console.error('❌ Enhanced sync failed:', error);
+    setSyncStatus('error');
+    
+    Alert.alert(
+      'Sync Failed',
+      `Could not sync: ${error.message}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Retry', onPress: () => syncWithBackend() }
+      ]
+    );
+  } finally {
+    setIsSyncing(false);
+  }
+};
 
   // Manual sync function (for sync button)
   const handleManualSync = async () => {
