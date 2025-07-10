@@ -761,9 +761,54 @@ const syncWithBackend = async () => {
     }
   };
 
-  const removeProduct = (productId) => {
-    setProducts(products.filter(p => p.id !== productId));
-  };
+const removeProduct = async (productId) => {
+  try {
+    console.log('🗑️ Starting deletion of product:', productId);
+    console.log('🔍 Current products count before deletion:', products.length);
+    console.log('🔍 Product IDs before deletion:', products.map(p => p.id));
+    
+    // Remove from products array
+    const updatedProducts = products.filter(p => p.id !== productId);
+    console.log('🔍 Updated products count after filter:', updatedProducts.length);
+    console.log('🔍 Deleted product found?', products.length !== updatedProducts.length);
+    
+    setProducts(updatedProducts);
+    
+    // Check what's actually in AsyncStorage before saving
+    const currentSaved = await AsyncStorage.getItem(STORAGE_KEY);
+    if (currentSaved) {
+      const currentData = JSON.parse(currentSaved);
+      console.log('🔍 Current AsyncStorage product count:', currentData.products?.length || 0);
+    }
+    
+    // Save to AsyncStorage immediately
+    const dataToSave = {
+      products: updatedProducts,
+      customCategories,
+      lastSync: new Date().toISOString()
+    };
+    
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    console.log('✅ Saved to AsyncStorage. New count should be:', updatedProducts.length);
+    
+    // Verify what was actually saved
+    const verifySaved = await AsyncStorage.getItem(STORAGE_KEY);
+    if (verifySaved) {
+      const verifyData = JSON.parse(verifySaved);
+      console.log('🔍 Verified AsyncStorage now has:', verifyData.products?.length || 0, 'products');
+    }
+    
+    console.log('🔄 Triggering sync in 2 seconds...');
+    setTimeout(() => {
+      console.log('🔄 About to sync after deletion');
+      syncWithBackend();
+    }, 2000);
+    
+  } catch (error) {
+    console.error('❌ Error deleting product:', error);
+    Alert.alert('Error', 'Failed to delete product');
+  }
+};
 
   const openProduct = (url) => {
     Linking.openURL(url);
