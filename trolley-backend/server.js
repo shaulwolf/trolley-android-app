@@ -2,7 +2,7 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
 const cors = require('cors');
-const { statements } = require('./database');
+const { db, statements } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -97,105 +97,170 @@ app.put('/api/products/:id', (req, res) => {
   }
 });
 
-// ===== SYNC ENDPOINTS =====
+// ===== ENHANCED SYNC ENDPOINTS =====
+// Add these to replace the existing sync endpoints in server.js
 
-// GET /api/sync - Get all products for sync
+
+
+// GET /api/sync - Get products with optional timestamp filtering
 app.get('/api/sync', (req, res) => {
   try {
-    console.log('📥 Sync GET request received');
+    const { since } = req.query;
+    console.log(`📥 Enhanced Sync GET request${since ? ` since ${since}` : ''}`);
     
-    const products = statements.getAllProducts.all();
+    let products;
+    
+    // Filter by timestamp if provided
+    if (since) {
+      const stmt = db.prepare('SELECT * FROM products WHERE lastModified > ? ORDER BY lastModified DESC');
+      products = stmt.all(since);
+    } else {
+      products = statements.getAllProducts.all();
+    }
+    
     const parsedProducts = products.map(product => ({
       ...product,
-      variants: product.variants ? JSON.parse(product.variants) : {}
+      variants: product.variants ? JSON.parse(product.variants) : {},
+      lastModified: product.lastModified || product.dateAdded
     }));
     
     const syncData = {
       products: parsedProducts,
       timestamp: new Date().toISOString(),
-      count: parsedProducts.length
+      count: parsedProducts.length,
+      filtered: !!since
     };
     
     console.log(`📤 Sending ${parsedProducts.length} products for sync`);
     res.json(syncData);
     
   } catch (error) {
-    console.error('Error in sync GET:', error);
-    res.status(500).json({ error: 'Failed to get sync data' });
+    console.error('Error in enhanced sync GET:', error);
+    res.status(500).json({ error: 'Failed to get sync data', details: error.message });
   }
 });
 
-// POST /api/sync - Upload products for sync
+// POST /api/sync/upload - Upload products with intelligent conflict resolution
+// POST /api/sync - Upload products for sync (HANDLES DELETIONS BY REPLACEMENT)
 app.post('/api/sync', (req, res) => {
   try {
     const { products, deviceId } = req.body;
     
     console.log(`📥 Sync POST request from device: ${deviceId}`);
     console.log(`📊 Received ${products?.length || 0} products`);
+    console.log(`🔄 Using complete state replacement (handles deletions automatically)`);
     
     if (!products || !Array.isArray(products)) {
       return res.status(400).json({ error: 'Products array is required' });
     }
     
-    // Simple approach: Clear all and insert new products
-    // This ensures both apps have exactly the same data
-    const db = require('./database').db;
+    // COMPLETE STATE REPLACEMENT APPROACH
+    // This automatically handles deletions - if a product isn't in the upload, it gets deleted
     
     // Start transaction for safety
-    const deleteAll = db.prepare('DELETE FROM products');
-    deleteAll.run();
-    
-    let insertedCount = 0;
-    products.forEach(product => {
-      try {
-        // Ensure required fields exist
-        const productData = {
-          id: product.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          url: product.url,
-          title: product.title || 'Unknown Product',
-          price: product.price || 'N/A',
-          originalPrice: product.originalPrice || null,
-          image: product.image || null,
-          site: product.site || new URL(product.url).hostname,
-          displaySite: product.displaySite || product.site || new URL(product.url).hostname,
-          category: product.category || 'general',
-          variants: JSON.stringify(product.variants || {}),
-          dateAdded: product.dateAdded || new Date().toISOString()
-        };
-        
-        statements.insertProduct.run(
-          productData.id,
-          productData.url,
-          productData.title,
-          productData.price,
-          productData.originalPrice,
-          productData.image,
-          productData.site,
-          productData.displaySite,
-          productData.category,
-          productData.variants,
-          productData.dateAdded
-        );
-        
-        insertedCount++;
-      } catch (error) {
-        console.error('Error inserting product:', product.url, error.message);
-      }
+    const transaction = db.transaction(() => {
+      // Step 1: Clear ALL existing products
+      const deleteAll = db.prepare('DELETE FROM products');
+      const deleteResult = deleteAll.run();
+      console.log(`🗑️ Cleared ${deleteResult.changes} existing products`);
+      
+      // Step 2: Insert ALL products from the uploading device
+      let insertedCount = 0;
+      products.forEach(product => {
+        try {
+          // Ensure required fields exist
+          const productData = {
+            id: product.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            url: product.url,
+            title: product.title || 'Unknown Product',
+            price: product.price || 'N/A',
+            originalPrice: product.originalPrice || null,
+            image: product.image || null,
+            site: product.site || new URL(product.url).hostname,
+            displaySite: product.displaySite || product.site || new URL(product.url).hostname,
+            category: product.category || 'general',
+            variants: JSON.stringify(product.variants || {}),
+            dateAdded: product.dateAdded || new Date().toISOString(),
+            lastModified: product.lastModified || new Date().toISOString(),
+            deviceSource: deviceId  // Track which device uploaded this
+          };
+          
+          statements.insertProduct.run(
+            productData.id,
+            productData.url,
+            productData.title,
+            productData.price,
+            productData.originalPrice,
+            productData.image,
+            productData.site,
+            productData.displaySite,
+            productData.category,
+            productData.variants,
+            productData.dateAdded,
+            productData.lastModified,
+            productData.deviceSource
+          );
+          
+          insertedCount++;
+        } catch (error) {
+          console.error('Error inserting product:', product.url, error.message);
+        }
+      });
+      
+      return insertedCount;
     });
     
-    console.log(`✅ Sync completed: ${insertedCount} products inserted`);
+    // Execute the transaction
+    const insertedCount = transaction();
+    
+    console.log(`✅ Complete state sync completed: ${insertedCount} products inserted`);
+    console.log(`🔄 Any products not in upload from ${deviceId} have been automatically deleted`);
     
     res.json({
       success: true,
       inserted: insertedCount,
-      deviceId: deviceId,
+      message: 'Complete state replacement completed',
       timestamp: new Date().toISOString()
     });
     
   } catch (error) {
-    console.error('Error in sync POST:', error);
+    console.error('Error in complete state sync:', error);
+    res.status(500).json({ error: 'Failed to sync products' });
+  }
+});
+
+// GET /api/sync/status - Get sync status and statistics
+app.get('/api/sync/status', (req, res) => {
+  try {
+    // Get product count by device
+    const deviceStatsStmt = db.prepare(`
+      SELECT deviceSource, COUNT(*) as count 
+      FROM products 
+      WHERE deviceSource IS NOT NULL 
+      GROUP BY deviceSource
+    `);
+    const deviceStats = deviceStatsStmt.all();
+    
+    // Get total stats
+    const totalProductsStmt = db.prepare('SELECT COUNT(*) as count FROM products');
+    const totalProducts = totalProductsStmt.get();
+    
+    const newestProductStmt = db.prepare('SELECT MAX(lastModified) as newest FROM products');
+    const newestProduct = newestProductStmt.get();
+    
+    const status = {
+      totalProducts: totalProducts.count,
+      deviceBreakdown: deviceStats,
+      newestUpdate: newestProduct.newest,
+      serverTime: new Date().toISOString()
+    };
+    
+    res.json(status);
+    
+  } catch (error) {
+    console.error('Error getting sync status:', error);
     res.status(500).json({ 
-      error: 'Failed to process sync upload',
+      error: 'Failed to get sync status',
       details: error.message 
     });
   }
