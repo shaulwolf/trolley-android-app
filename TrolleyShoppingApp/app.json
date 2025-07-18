@@ -9,8 +9,9 @@
       "android"
     ],
     "android": {
-      "package": "com.shaulwolf.trolley",
+      "package": "com.trolley.app",
       "versionCode": 1,
+      "googleServicesFile": "./google-services.json",
       "intentFilters": [
         {
           "action": "android.intent.action.SEND",

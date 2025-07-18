@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "472976602572",
+    "project_id": "trolley-app-4885d",
+    "storage_bucket": "trolley-app-4885d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:472976602572:android:866b0c16330c5c62cf1969",
+        "android_client_info": {
+          "package_name": "com.trolley.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "472976602572-gs0rrrnb57tpuh9u0filpp0npecmf4jv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.trolley.app",
+            "certificate_hash": "68a1208cbe1c863c9dce3eccabfd20e56b3a5e30"
+          }
+        },
+        {
+          "client_id": "472976602572-g3ujtnkpkdu9ctml7uo3tgiarsplifqr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "472976602572-g3ujtnkpkdu9ctml7uo3tgiarsplifqr.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

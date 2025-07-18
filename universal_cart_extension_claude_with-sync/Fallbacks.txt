@@ -1,0 +1,61 @@
+Fallback GetProductInfo that works but doesn't have all prices:
+
+function getProductInfo() {
+  const title = document.querySelector('meta[property="og:title"]')?.content || document.title;
+  const image = document.querySelector('meta[property="og:image"]')?.content || document.querySelector("img")?.src || "";
+  const description = document.querySelector('meta[property="og:description"]')?.content || "";
+
+  let salePrice = "";
+  let originalPrice = "";
+
+  // Try multiple common price selectors
+  const priceSelectors = [
+    '[data-testid="price"]',
+    '.price', 
+    '.product-price', 
+    '[class*="price"]', 
+    '[itemprop="price"]',
+    '.price-final', 
+    '.current-price'
+  ];
+
+  for (const selector of priceSelectors) {
+    const el = document.querySelector(selector);
+    if (el && el.innerText && el.innerText.trim().match(/\$\d/)) {
+      salePrice = el.innerText.trim();
+      break;
+    }
+  }
+
+  // Try to find original price (strikethrough)
+  const originalSelectors = [
+    '[class*="original-price"]',
+    '.price-was',
+    '.strikethrough',
+    '[data-testid="strikethrough-price"]'
+  ];
+
+  for (const selector of originalSelectors) {
+    const el = document.querySelector(selector);
+    if (el && el.innerText && el.innerText.trim().match(/\$\d/)) {
+      originalPrice = el.innerText.trim();
+      break;
+    }
+  }
+
+  // If no sale price found but original exists, use that
+  if (!salePrice && originalPrice) {
+    salePrice = originalPrice;
+    originalPrice = "";
+  }
+
+  return {
+    title,
+    image,
+    description,
+    price: salePrice || "N/A",
+    originalPrice,
+    url: window.location.href,
+    site: window.location.hostname
+  };
+}

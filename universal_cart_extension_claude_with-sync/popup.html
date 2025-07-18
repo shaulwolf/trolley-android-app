@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trolley</title>
+    <link rel="stylesheet" href="popup.css" />
+    <div class="sync-status" id="syncStatus">
+      <div class="sync-indicator" id="syncIndicator" style="display: none">
+        <span class="sync-spinner">🔄</span>
+        <span class="sync-text">Syncing...</span>
+      </div>
+      <button
+        class="sync-button"
+        id="syncButton"
+        title="Click once for normal sync, double-click for force sync from server"
+      >
+        <span id="syncButtonText">🔄 Sync Now</span>
+      </button>
+    </div>
+
+    <!-- OAuth2 and Google Auth -->
+    <script src="oauth2/oauth2.js"></script>
+    <script src="google-auth.js"></script>
+  </head>
+  <body>
+    <!-- Auth Section -->
+    <div class="auth-section" id="authSection">
+      <div class="auth-container">
+        <h2>Welcome to Trolley</h2>
+        <p>Sign in to sync your products across devices</p>
+        <button class="google-signin-btn" id="googleSignInBtn">
+          <img
+            src="https://developers.google.com/identity/images/g-logo.png"
+            alt="Google"
+            class="google-icon"
+          />
+          Sign in with Google
+        </button>
+      </div>
+    </div>
+
+    <!-- Main App Section (hidden until authenticated) -->
+    <div class="extension-container" id="mainApp" style="display: none">
+      <div class="header">
+        <div class="header-top">
+          <h1>Trolley</h1>
+          <button class="close-btn" id="closeBtn">×</button>
+        </div>
+
+        <!-- User Info -->
+        <div class="user-info" id="userInfo">
+          <img class="user-avatar" id="userAvatar" src="" alt="User Avatar" />
+          <div class="user-details">
+            <div class="user-name" id="userName"></div>
+            <div class="user-email" id="userEmail"></div>
+          </div>
+          <button class="signout-btn" id="signOutBtn">Sign Out</button>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+          <button class="tab-button active" id="categoriesTab">
+            Categories
+          </button>
+          <button class="tab-button" id="storesTab">Stores</button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-container">
+          <div class="search-input-wrapper">
+            <input
+              type="text"
+              id="searchInput"
+              placeholder="Search products..."
+              class="search-input"
+            />
+            <button
+              class="search-clear-btn"
+              id="searchClearBtn"
+              style="display: none"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter and Sort Row -->
+        <div class="filter-sort-row">
+          <!-- Category Filter Dropdown -->
+          <div class="category-filter-container">
+            <div class="category-filter-display" id="categoryFilterDisplay">
+              <span>All Items (0)</span>
+              <span class="dropdown-arrow">▼</span>
+            </div>
+            <div class="main-category-dropdown" id="mainCategoryDropdown">
+              <button class="main-category-option selected" data-value="all">
+                All Items (0)
+              </button>
+              <input
+                type="text"
+                class="main-new-category-input"
+                placeholder="Add new category"
+              />
+            </div>
+          </div>
+
+          <!-- Sort Dropdown -->
+          <div class="sort-container">
+            <select class="sort-select" id="sortSelect">
+              <option value="dateAdded-desc">Last Added</option>
+              <option value="dateAdded-asc">First Added</option>
+              <option value="price-desc">Highest Price</option>
+              <option value="price-asc">Lowest Price</option>
+              <option value="title-asc">A-Z</option>
+              <option value="title-desc">Z-A</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="content" id="cartContent">
+        <div class="empty-state">
+          <h3>Your trolley is empty</h3>
+          <p>Visit any product page and click the trolley icon to add items!</p>
+        </div>
+
+        <!-- Search Results Info -->
+        <div
+          class="search-results-info"
+          id="searchResultsInfo"
+          style="display: none"
+        >
+          <span id="searchResultsText"></span>
+          <button class="clear-search-btn" id="clearSearchBtn">
+            Clear Search
+          </button>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="subtotal">
+          <span class="subtotal-label">Total Items: </span>
+          <span class="subtotal-amount" id="totalItems">0</span>
+        </div>
+        <button class="checkout-btn" id="checkoutBtn">Open All Items</button>
+      </div>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

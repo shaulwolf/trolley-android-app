@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "Trolley",
+  "version": "2.0",
+  "description": "Save products from any store into your Trolley.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "identity",
+    "identity.email",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "<all_urls>",
+    "http://localhost:*/*",
+    "https://miniature-rotary-phone-jjgwwv6pv4r735j99-3000.app.github.dev/*",
+    "https://www.googleapis.com/*",
+    "https://oauth2.googleapis.com/*",
+    "https://accounts.google.com/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["Images/Trolley.png"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}
