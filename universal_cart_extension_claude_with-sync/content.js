@@ -6,7 +6,7 @@
     window.location.hostname.includes("localhost") ||
     window.location.hostname.includes("127.0.0.1")
   ) {
-    console.log("🔌 Setting up PWA-Extension communication");
+    console.log("🔌 Setting up PWA-Extension communication1");
 
     // Listen for extension messages
     if (typeof chrome !== "undefined" && chrome.runtime) {
@@ -1002,37 +1002,37 @@
     console.log("➕ Adding product to trolley:", product.title);
 
     // Add to server and get updated list
-          const productId = product.id || product.url; // Use URL as fallback ID
-          chrome.runtime.sendMessage(
-            {
-              action: "addProduct",
-              product: {
-                ...product,
-                id: productId,
+    const productId = product.id || product.url; // Use URL as fallback ID
+    chrome.runtime.sendMessage(
+      {
+        action: "addProduct",
+        product: {
+          ...product,
+          id: productId,
           category: categoryName === "All Items" ? "general" : categoryName,
-              },
-            },
-            (response) => {
-              if (response && response.success) {
-                console.log("✅ Product added to server:", productId);
+        },
+      },
+      (response) => {
+        if (response && response.success) {
+          console.log("✅ Product added to server:", productId);
           showNotification(`Added to ${categoryName}!`);
-              } else {
+        } else {
           console.error("❌ Failed to add product to server:", response?.error);
           showNotification("Failed to add product!");
         }
       }
     );
 
-      // Close the selector
-      const selector = document.getElementById("trolley-category-selector");
-      if (selector) {
-        selector.remove();
-      }
-      // Remove animation style
-      const style = document.querySelector('style[data-trolley="animation"]');
-      if (style) {
-        style.remove();
-      }
+    // Close the selector
+    const selector = document.getElementById("trolley-category-selector");
+    if (selector) {
+      selector.remove();
+    }
+    // Remove animation style
+    const style = document.querySelector('style[data-trolley="animation"]');
+    if (style) {
+      style.remove();
+    }
   }
 
   function injectCartButton() {
