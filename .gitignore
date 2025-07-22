@@ -4,3 +4,6 @@ node_modules/
 .env
 *.env
 .env
+
+# Environment configuration (contains secrets)
+universal_cart_extension_claude_with-sync/env.js

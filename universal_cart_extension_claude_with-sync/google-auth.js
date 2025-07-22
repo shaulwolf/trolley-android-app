@@ -10,25 +10,31 @@ class GoogleAuth {
   }
 
   initialize() {
+    console.log("[GoogleAuth] initialize()");
+
+    // Get OAuth credentials from environment variables
+    const clientId = window.env && window.env.GOOGLE_CLIENT_ID;
+    const clientSecret = window.env && window.env.GOOGLE_CLIENT_SECRET;
+    const apiScope = window.env && window.env.GOOGLE_API_SCOPE;
+
     // Initialize OAuth2 with Google configuration
     this.oauth2 = new OAuth2("google", {
-      client_id:
-        "472976602572-758e48ae800229fecf1969.apps.googleusercontent.com",
-      client_secret: "", // Chrome extension doesn't need client_secret for OAuth2 flow
-      api_scope: "openid email profile",
+      client_id: clientId,
+      client_secret: clientSecret,
+      api_scope: apiScope,
     });
 
     // Try to load existing tokens
     this.oauth2.loadStoredTokens((auth, error) => {
       if (auth) {
-        console.log("Existing tokens loaded successfully");
+        console.log("[GoogleAuth] Existing tokens loaded successfully");
         this.isAuthenticated = true;
         this.getUserInfo((userInfo) => {
           this.userInfo = userInfo;
           this.onAuthStateChanged(true, userInfo);
         });
       } else {
-        console.log("No existing tokens:", error);
+        console.log("[GoogleAuth] No existing tokens:", error);
         this.isAuthenticated = false;
         this.onAuthStateChanged(false, null);
       }
@@ -37,14 +43,14 @@ class GoogleAuth {
 
   signIn(callback) {
     if (!this.oauth2) {
-      console.error("OAuth2 not initialized");
+      console.error("[GoogleAuth] OAuth2 not initialized");
       callback(null, "OAuth2 not initialized");
       return;
     }
-
+    console.log("[GoogleAuth] signIn() - calling authorize...");
     this.oauth2.authorize((auth, error) => {
       if (auth) {
-        console.log("OAuth2 authorization successful");
+        console.log("[GoogleAuth] OAuth2 authorization successful");
         this.isAuthenticated = true;
 
         // Get user info
@@ -54,7 +60,7 @@ class GoogleAuth {
           callback(userInfo);
         });
       } else {
-        console.error("OAuth2 authorization failed:", error);
+        console.error("[GoogleAuth] OAuth2 authorization failed:", error);
         this.isAuthenticated = false;
         this.onAuthStateChanged(false, null);
         callback(null, error);
@@ -63,6 +69,7 @@ class GoogleAuth {
   }
 
   signOut(callback) {
+    console.log("[GoogleAuth] signOut()");
     if (this.oauth2) {
       this.oauth2.clearTokens();
     }
@@ -77,7 +84,9 @@ class GoogleAuth {
   }
 
   getUserInfo(callback) {
+    console.log("[GoogleAuth] getUserInfo()");
     if (!this.oauth2 || !this.oauth2.accessToken) {
+      console.warn("[GoogleAuth] No access token available");
       callback(null, "No access token available");
       return;
     }
@@ -88,17 +97,24 @@ class GoogleAuth {
 
     xhr.onreadystatechange = () => {
       if (xhr.readyState === 4) {
+        console.log("[OAuth2] Token exchange status:", xhr.status);
+        console.log("[OAuth2] Token exchange responseText:", xhr.responseText);
         if (xhr.status === 200) {
           try {
-            const userInfo = JSON.parse(xhr.responseText);
-            callback(userInfo);
+            const response = JSON.parse(xhr.responseText);
+            console.log("[OAuth2] Token response:", response);
+            // Якщо у відповіді є id_token, логінити у Firebase
+            if (response.id_token) {
+              signInWithFirebaseIdToken(response.id_token);
+            }
+            callback(response);
           } catch (error) {
-            console.error("Error parsing user info:", error);
+            console.error("[GoogleAuth] Error parsing user info:", error);
             callback(null, "Error parsing user info");
           }
         } else {
           console.error(
-            "Failed to get user info:",
+            "[GoogleAuth] Failed to get user info:",
             xhr.status,
             xhr.responseText
           );
@@ -125,7 +141,7 @@ class GoogleAuth {
   // Callback for auth state changes
   onAuthStateChanged(isSignedIn, userInfo) {
     // This will be overridden by the popup
-    console.log("Auth state changed:", isSignedIn, userInfo);
+    console.log("[GoogleAuth] Auth state changed:", isSignedIn, userInfo);
   }
 
   // Set auth state change callback

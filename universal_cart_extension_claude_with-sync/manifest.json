@@ -46,5 +46,9 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
+  },
+  "oauth2": {
+    "client_id": "472976602572-0ir3i5jtc0itabq7upanaqd7rnr8ofv1.apps.googleusercontent.com",
+    "scopes": ["openid", "email", "profile"]
   }
 }
