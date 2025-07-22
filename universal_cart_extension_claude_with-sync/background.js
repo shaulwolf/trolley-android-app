@@ -1,12 +1,58 @@
-// Simple Trolley Background Service
+// Enhanced Trolley Background Service with Firebase Auth
 const BACKEND_URL = "http://localhost:3000";
 
-// Get all products from server
+// Get current Firebase ID token
+async function getFirebaseToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["firebase_id_token"], (result) => {
+      resolve(result.firebase_id_token || null);
+    });
+  });
+}
+
+// Store Firebase ID token
+async function storeFirebaseToken(token) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ firebase_id_token: token }, resolve);
+  });
+}
+
+// Make authenticated API request
+async function makeAuthenticatedRequest(url, options = {}) {
+  const token = await getFirebaseToken();
+
+  if (!token) {
+    throw new Error("User not authenticated. Please sign in first.");
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+    ...options.headers,
+  };
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    // Token expired or invalid, clear it
+    chrome.storage.local.remove(["firebase_id_token"]);
+    throw new Error("Authentication expired. Please sign in again.");
+  }
+
+  return response;
+}
+
+// Get all products from server (authenticated)
 async function getAllProducts() {
   try {
     console.log("📥 Getting all products from server...");
 
-    const response = await fetch(`${BACKEND_URL}/api/products`);
+    const response = await makeAuthenticatedRequest(
+      `${BACKEND_URL}/api/products`
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to get products: ${response.status}`);
@@ -22,30 +68,29 @@ async function getAllProducts() {
   }
 }
 
-// Add product to server
+// Add product to server (authenticated)
 async function addProduct(product) {
   try {
     console.log("➕ Adding product to server:", product.title);
 
-    const response = await fetch(`${BACKEND_URL}/api/products`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: product.id,
-        url: product.url,
-        title: product.title,
-        price: product.price,
-        originalPrice: product.originalPrice,
-        image: product.image,
-        site: product.site,
-        displaySite: product.displaySite,
-        category: product.category || "general",
-        variants: product.variants || {},
-        dateAdded: product.dateAdded || new Date().toISOString(),
-      }),
-    });
+    const response = await makeAuthenticatedRequest(
+      `${BACKEND_URL}/api/products`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          url: product.url,
+          title: product.title,
+          price: product.price,
+          originalPrice: product.originalPrice,
+          image: product.image,
+          site: product.site,
+          displaySite: product.displaySite,
+          category: product.category || "general",
+          variants: product.variants || {},
+          dateAdded: product.dateAdded || new Date().toISOString(),
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -64,17 +109,17 @@ async function addProduct(product) {
   }
 }
 
-// Delete product from server
+// Delete product from server (authenticated)
 async function deleteProduct(productId) {
   try {
     console.log("🗑️ Deleting product from server:", productId);
 
-    const response = await fetch(`${BACKEND_URL}/api/products/${productId}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const response = await makeAuthenticatedRequest(
+      `${BACKEND_URL}/api/products/${productId}`,
+      {
+        method: "DELETE",
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -93,44 +138,85 @@ async function deleteProduct(productId) {
   }
 }
 
-// Convert server products to Chrome storage format
-function serverToChrome(serverProducts) {
-  console.log(
-    "🔄 Converting server products to Chrome format:",
-    serverProducts
-  );
+// Extract product info from URL (public endpoint)
+async function extractProductInfo(url) {
+  try {
+    console.log("🔍 Extracting product info from:", url);
 
+    const response = await fetch(`${BACKEND_URL}/extract-product`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to extract product: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log("✅ Product info extracted successfully");
+
+    return result;
+  } catch (error) {
+    console.error("❌ Failed to extract product info:", error);
+    throw error;
+  }
+}
+
+// Convert server format to Chrome storage format
+function serverToChrome(products) {
   const chromeData = {};
 
-  if (!serverProducts || serverProducts.length === 0) {
-    console.log("📭 No products to convert, returning empty object");
-    return chromeData;
-  }
+  products.forEach((product) => {
+    const category = product.category || "general";
 
-  serverProducts.forEach((product) => {
-    const category =
-      product.category === "general" ? "All Items" : product.category;
     if (!chromeData[category]) {
       chromeData[category] = [];
     }
-    chromeData[category].push(product);
+
+    chromeData[category].push({
+      id: product.id,
+      url: product.url,
+      title: product.title,
+      price: product.price,
+      originalPrice: product.originalPrice,
+      image: product.image,
+      site: product.site,
+      displaySite: product.displaySite,
+      variants: product.variants || {},
+      dateAdded: product.dateAdded,
+    });
   });
 
-  console.log("✅ Converted to Chrome format:", chromeData);
   return chromeData;
 }
 
-// Initialize badge
+// Update badge with product count
 function updateBadge() {
-  chrome.storage.local.get({ cart: {} }, ({ cart }) => {
-    const total = Object.values(cart).flat().length;
-    chrome.action.setBadgeText({ text: total > 0 ? total.toString() : "" });
-    chrome.action.setBadgeBackgroundColor({ color: "#000" });
-    console.log("📊 Badge updated:", total, "products");
+  chrome.storage.local.get({ cart: {} }, (result) => {
+    let count = 0;
+    Object.values(result.cart).forEach((category) => {
+      Object.values(category).forEach((siteProducts) => {
+        count += siteProducts.length;
+      });
+    });
+
+    chrome.action.setBadgeText({
+      text: count > 0 ? count.toString() : "",
+    });
+    chrome.action.setBadgeBackgroundColor({ color: "#4CAF50" });
   });
 }
 
-// Handle messages from popup
+// Initialize extension
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("🚀 Trolley Extension installed");
+  updateBadge();
+});
+
+// Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("📨 Received message:", request);
 
@@ -157,14 +243,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       })
       .catch((error) => {
-        sendResponse({ success: false, error: error.message });
+        console.error("❌ Error getting products:", error);
+        sendResponse({
+          success: false,
+          error: error.message,
+          needsAuth:
+            error.message.includes("not authenticated") ||
+            error.message.includes("Authentication expired"),
+        });
       });
-  } else if (request.action === "addProduct") {
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "addProduct") {
     console.log("➕ Add product requested:", request.product);
-    console.log(
-      "📦 Product data being sent to server:",
-      JSON.stringify(request.product, null, 2)
-    );
 
     addProduct(request.product)
       .then((result) => {
@@ -187,9 +280,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       })
       .catch((error) => {
         console.error("❌ Error in addProduct flow:", error);
-        sendResponse({ success: false, error: error.message });
+        sendResponse({
+          success: false,
+          error: error.message,
+          needsAuth:
+            error.message.includes("not authenticated") ||
+            error.message.includes("Authentication expired"),
+        });
       });
-  } else if (request.action === "deleteProduct") {
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "deleteProduct") {
     console.log("🗑️ Delete product requested:", request.productId);
 
     deleteProduct(request.productId)
@@ -210,24 +313,79 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       })
       .catch((error) => {
+        console.error("❌ Error in deleteProduct flow:", error);
+        sendResponse({
+          success: false,
+          error: error.message,
+          needsAuth:
+            error.message.includes("not authenticated") ||
+            error.message.includes("Authentication expired"),
+        });
+      });
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "extractProduct") {
+    console.log("🔍 Extract product requested:", request.url);
+
+    extractProductInfo(request.url)
+      .then((result) => {
+        sendResponse({
+          success: true,
+          productInfo: result,
+        });
+      })
+      .catch((error) => {
+        console.error("❌ Error extracting product:", error);
+        sendResponse({
+          success: false,
+          error: error.message,
+        });
+      });
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "storeFirebaseToken") {
+    console.log("🔐 Storing Firebase token");
+    storeFirebaseToken(request.token)
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch((error) => {
         sendResponse({ success: false, error: error.message });
       });
+
+    return true;
   }
 
-  return true;
-});
+  if (request.action === "getAuthStatus") {
+    getFirebaseToken()
+      .then((token) => {
+        sendResponse({
+          isAuthenticated: !!token,
+          hasToken: !!token,
+        });
+      })
+      .catch(() => {
+        sendResponse({
+          isAuthenticated: false,
+          hasToken: false,
+        });
+      });
 
-// Initialize when extension loads
-chrome.runtime.onInstalled.addListener(() => {
-  console.log("🚀 Trolley extension installed/reloaded");
-  updateBadge();
-});
+    return true;
+  }
 
-// Update badge when storage changes
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.cart) {
-    updateBadge();
+  if (request.action === "clearAuth") {
+    chrome.storage.local.remove(["firebase_id_token"], () => {
+      sendResponse({ success: true });
+    });
+
+    return true;
   }
 });
 
-console.log("🔄 Simple background script loaded successfully");
+// Update badge on startup
+updateBadge();

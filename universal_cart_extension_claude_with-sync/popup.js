@@ -778,6 +778,12 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
+    // Check if user is authenticated first
+    if (!currentUser) {
+      console.log("User not authenticated, skipping cart load");
+      return;
+    }
+
     isLoadingCart = true;
     console.log("📦 Loading cart data from server...");
 
@@ -785,7 +791,7 @@ document.addEventListener("DOMContentLoaded", function () {
     chrome.runtime.sendMessage({ action: "getAllProducts" }, (response) => {
       isLoadingCart = false;
 
-      if (response.success) {
+      if (response && response.success) {
         console.log("✅ Loaded products from server:", response.message);
         console.log("📊 Response product count:", response.productCount);
 
@@ -845,7 +851,13 @@ document.addEventListener("DOMContentLoaded", function () {
           updateCategoryCounts();
         });
       } else {
-        console.error("❌ Failed to load products:", response.error);
+        console.error("❌ Failed to load products:", response?.error);
+
+        // Handle authentication errors
+        if (response?.needsAuth) {
+          console.log("❌ Authentication required, signing out user");
+          signOutUser();
+        }
       }
     });
   };
@@ -1203,11 +1215,18 @@ function updateSyncUI(syncing, message = "") {
 function manualSync() {
   if (isSyncing) return;
 
+  // Check if user is authenticated first
+  if (!currentUser) {
+    console.log("User not authenticated, cannot sync");
+    updateSyncUI(false, "❌ Please sign in");
+    return;
+  }
+
   updateSyncUI(true);
 
   // Simple sync - just get all products from server
   chrome.runtime.sendMessage({ action: "getAllProducts" }, (response) => {
-    if (response.success) {
+    if (response && response.success) {
       updateSyncUI(false, `✅ Synced (${response.productCount} products)`);
 
       // Reload the cart display without page reload
@@ -1225,7 +1244,15 @@ function manualSync() {
         updateSyncUI(false);
       }, 3000);
     } else {
-      updateSyncUI(false, "❌ Sync Failed");
+      console.error("❌ Sync failed:", response?.error);
+
+      // Handle authentication errors
+      if (response?.needsAuth) {
+        updateSyncUI(false, "❌ Please sign in");
+        signOutUser();
+      } else {
+        updateSyncUI(false, "❌ Sync Failed");
+      }
       console.error("Sync failed:", response.error);
 
       // Reset button text after 3 seconds

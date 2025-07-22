@@ -1018,7 +1018,13 @@
           showNotification(`Added to ${categoryName}!`);
         } else {
           console.error("❌ Failed to add product to server:", response?.error);
-          showNotification("Failed to add product!");
+
+          // Handle authentication errors
+          if (response?.needsAuth) {
+            showNotification("❌ Please sign in to add products", "error");
+          } else {
+            showNotification("Failed to add product!");
+          }
         }
       }
     );

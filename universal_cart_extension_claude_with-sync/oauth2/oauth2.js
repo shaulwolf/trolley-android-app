@@ -184,7 +184,9 @@ class OAuth2 {
         this.tokenType = response.token_type;
         this.expiresAt = Date.now() + this.expiresIn * 1000;
 
+        // Store ID token if available
         if (response.id_token) {
+          this.idToken = response.id_token;
           signInWithFirebaseIdToken(response.id_token);
         } else {
           console.warn("[OAuth2] No id_token in Google OAuth response.");
@@ -197,9 +199,14 @@ class OAuth2 {
           oauth_expires_at: this.expiresAt,
         };
 
-        // Only store the refresh token if we receive a new one
+        // Store the refresh token if we receive a new one
         if (this.refreshToken) {
           tokensToStore.oauth_refresh_token = this.refreshToken;
+        }
+
+        // Store the ID token if we receive one
+        if (response.id_token) {
+          tokensToStore.oauth_id_token = response.id_token;
         }
 
         chrome.storage.local.set(tokensToStore, () => {

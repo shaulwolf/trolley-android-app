@@ -1,25 +1,18 @@
 import { useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Alert } from "react-native";
-import { STORAGE_KEY, BACKEND_URL } from "../utils/constants";
+import apiService from "../services/api";
 
 export const useSync = (products, customCategories, updateProductsFromSync) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncStatus, setSyncStatus] = useState("ready"); // 'ready', 'syncing', 'success', 'error'
 
-  // Simple function to get all products from server
+  // Get all products from server using authenticated API
   const getAllProducts = async () => {
     try {
       console.log("📥 Getting all products from server...");
 
-      const response = await fetch(`${BACKEND_URL}/api/products`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to get products: ${response.status}`);
-      }
-
-      const products = await response.json();
+      const products = await apiService.getProducts();
       console.log("📥 Received", products.length, "products from server");
 
       return products;
@@ -29,73 +22,45 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
     }
   };
 
-  // Simple function to add product to server
+  // Add product to server using authenticated API
   const addProductToServer = async (product) => {
     try {
       console.log("➕ Adding product to server:", product.title);
 
-      const response = await fetch(`${BACKEND_URL}/api/products`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: product.id,
-          url: product.url,
-          title: product.title,
-          price: product.price,
-          originalPrice: product.originalPrice,
-          image: product.image,
-          site: product.site,
-          displaySite: product.displaySite,
-          category: product.category || "general",
-          variants: product.variants || {},
-          dateAdded: product.dateAdded || new Date().toISOString(),
-        }),
-      });
+      const addedProduct = await apiService.addProduct(product);
+      console.log("✅ Product added to server with ID:", addedProduct.id);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to add product: ${response.status} - ${errorText}`
-        );
-      }
-
-      const result = await response.json();
-      console.log("✅ Product added to server successfully");
-
-      return result;
+      return addedProduct;
     } catch (error) {
       console.error("❌ Failed to add product to server:", error);
       throw error;
     }
   };
 
-  // Simple function to delete product from server
+  // Delete product from server using authenticated API
   const deleteProductFromServer = async (productId) => {
     try {
       console.log("🗑️ Deleting product from server:", productId);
 
-      const response = await fetch(`${BACKEND_URL}/api/products/${productId}`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      await apiService.deleteProduct(productId);
+      console.log("✅ Product deleted from server");
+    } catch (error) {
+      console.error("❌ Failed to delete product from server:", error);
+      throw error;
+    }
+  };
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(
-          `Failed to delete product: ${response.status} - ${errorText}`
-        );
-      }
+  // Upload all products to server using authenticated API
+  const uploadProductsToServer = async (productsToUpload) => {
+    try {
+      console.log("📤 Uploading products to server:", productsToUpload.length);
 
-      const result = await response.json();
-      console.log("✅ Product deleted from server successfully");
+      const result = await apiService.syncProducts(productsToUpload);
+      console.log("✅ Products uploaded to server");
 
       return result;
     } catch (error) {
-      console.error("❌ Failed to delete product from server:", error);
+      console.error("❌ Failed to upload products to server:", error);
       throw error;
     }
   };
@@ -122,14 +87,6 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
       if (updateProductsFromSync) {
         updateProductsFromSync(serverProducts);
       }
-
-      // Save to local storage
-      const data = {
-        products: serverProducts,
-        customCategories,
-        lastSync: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 
       // Update sync status
       setLastSyncTime(new Date());
@@ -175,14 +132,6 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
         updateProductsFromSync(serverProducts);
       }
 
-      // Save to local storage
-      const data = {
-        products: serverProducts,
-        customCategories,
-        lastSync: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
       console.log("✅ Product added and synced successfully");
 
       return serverProducts;
@@ -208,14 +157,6 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
         updateProductsFromSync(serverProducts);
       }
 
-      // Save to local storage
-      const data = {
-        products: serverProducts,
-        customCategories,
-        lastSync: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-
       console.log("✅ Product deleted and synced successfully");
 
       return serverProducts;
@@ -235,5 +176,6 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
     getAllProducts,
     addProductToServer,
     deleteProductFromServer,
+    uploadProductsToServer,
   };
 };

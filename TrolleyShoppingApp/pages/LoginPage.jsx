@@ -2,6 +2,7 @@ import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import auth from "@react-native-firebase/auth";
 import { useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
+import apiService from "../services/api";
 
 const LoginPage = () => {
   useEffect(() => {
@@ -20,8 +21,50 @@ const LoginPage = () => {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = auth().onAuthStateChanged((user) => {
-      console.log("Auth state changed:", user ? user.email : "No user");
+    const unsubscribe = auth().onAuthStateChanged(async (user) => {
+      if (user) {
+        console.log("Auth state changed - User logged in:", user.email);
+
+        // Create user profile in backend after successful login
+        try {
+          console.log("🔄 Creating/updating user profile in backend...");
+
+          // Wait a moment for the token to be ready
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+
+          const profileData = {
+            email: user.email,
+            displayName: user.displayName || user.email.split("@")[0],
+            photoURL: user.photoURL,
+            emailVerified: user.emailVerified,
+            createdAt: new Date().toISOString(),
+          };
+
+          // Create user profile in backend using API service
+          const response = await fetch(
+            "http://localhost:3000/api/users/profile",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${await user.getIdToken()}`,
+              },
+              body: JSON.stringify(profileData),
+            }
+          );
+
+          if (response.ok) {
+            console.log("✅ User profile created/updated in backend");
+          } else {
+            console.log("⚠️ Failed to create user profile, but continuing...");
+          }
+        } catch (error) {
+          console.log("⚠️ Error creating user profile:", error.message);
+          // Continue anyway - user can still use the app
+        }
+      } else {
+        console.log("Auth state changed - User logged out");
+      }
     });
     return unsubscribe;
   }, []);
@@ -32,6 +75,7 @@ const LoginPage = () => {
       const user = await GoogleSignin.signIn();
       const idToken = user.data?.idToken;
       console.log("Google ID Token:", idToken);
+
       if (idToken) {
         const googleCredential = auth.GoogleAuthProvider.credential(idToken);
         const firebaseUser = await auth().signInWithCredential(
@@ -40,9 +84,11 @@ const LoginPage = () => {
         console.log("Firebase user created:", firebaseUser.user.uid);
         console.log("User email:", firebaseUser.user.email);
         console.log("User display name:", firebaseUser.user.displayName);
+
         const firebaseIdToken = await firebaseUser.user.getIdToken();
         console.log("Firebase ID Token for backend:", firebaseIdToken);
-        // await sendTokenToBackend(firebaseIdToken);
+
+        // User profile creation will be handled by auth state change listener
       } else {
         console.log("No ID token received from Google");
       }
@@ -63,6 +109,7 @@ const LoginPage = () => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Welcome to Trolley</Text>
+      <Text style={styles.subtitle}>Your personal shopping assistant</Text>
       <TouchableOpacity
         style={styles.googleButton}
         onPress={googleSignIn}
@@ -83,42 +130,51 @@ const LoginPage = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    padding: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: "#212529",
-    marginBottom: 8,
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#2c3e50",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 16,
+    color: "#7f8c8d",
+    marginBottom: 40,
     textAlign: "center",
   },
   googleButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#dee2e6",
-    borderRadius: 8,
-    paddingVertical: 14,
     paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#dadce0",
     shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   googleIcon: {
-    width: 24,
-    height: 24,
+    width: 20,
+    height: 20,
     marginRight: 12,
   },
   googleButtonText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#212529",
+    fontWeight: "500",
+    color: "#3c4043",
   },
 });
 

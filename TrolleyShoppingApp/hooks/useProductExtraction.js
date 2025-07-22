@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert } from "react-native";
-import { BACKEND_URL } from "../utils/constants";
 import { cleanStoreName } from "../utils/helpers";
+import apiService from "../services/api";
 
 export const useProductExtraction = () => {
   const [isExtracting, setIsExtracting] = useState(false);
@@ -12,28 +12,17 @@ export const useProductExtraction = () => {
     try {
       console.log("🕷️ Using trolley-backend universal scraper...");
 
-      const response = await fetch(`${BACKEND_URL}/extract-product`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-        timeout: 20000, // 20 second timeout
-      });
+      const productData = await apiService.extractProduct(url);
+      console.log("✅ Extraction successful:", productData);
 
-      if (response.ok) {
-        const productData = await response.json();
-        console.log("✅ Extraction successful:", productData);
-
-        return {
-          title: productData.title || `Product from ${new URL(url).hostname}`,
-          image: productData.image,
-          price: productData.price || "N/A",
-          site: productData.site || new URL(url).hostname,
-          originalPrice: productData.originalPrice,
-          variants: productData.variants || {},
-        };
-      } else {
-        throw new Error(`Server responded with status: ${response.status}`);
-      }
+      return {
+        title: productData.title || `Product from ${new URL(url).hostname}`,
+        image: productData.image,
+        price: productData.price || "N/A",
+        site: productData.site || new URL(url).hostname,
+        originalPrice: productData.originalPrice,
+        variants: productData.variants || {},
+      };
     } catch (error) {
       console.log(
         "⚠️ trolley-backend failed, using fallback...",
@@ -87,7 +76,6 @@ export const useProductExtraction = () => {
       }
 
       const newProduct = {
-        id: Date.now().toString(),
         url: url.trim(),
         category: finalCategory,
         dateAdded: new Date().toISOString(),
@@ -98,7 +86,8 @@ export const useProductExtraction = () => {
         ),
       };
 
-      addProduct(newProduct);
+      // Add product using the backend API (which will assign an ID)
+      await addProduct(newProduct);
     } catch (error) {
       Alert.alert("Error", `Failed to add product: ${error.message}`);
     } finally {
@@ -112,4 +101,3 @@ export const useProductExtraction = () => {
     addProductManually,
   };
 };
- 

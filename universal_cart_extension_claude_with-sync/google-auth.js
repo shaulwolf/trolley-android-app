@@ -1,5 +1,5 @@
 /**
- * Google Auth for Chrome Extension using OAuth2
+ * Google Auth for Chrome Extension using OAuth2 with Firebase Integration
  */
 
 class GoogleAuth {
@@ -7,6 +7,8 @@ class GoogleAuth {
     this.oauth2 = null;
     this.userInfo = null;
     this.isAuthenticated = false;
+    this.firebaseIdToken = null;
+    this.authStateChangeCallback = null;
   }
 
   initialize() {
@@ -17,11 +19,16 @@ class GoogleAuth {
     const clientSecret = window.env && window.env.GOOGLE_CLIENT_SECRET;
     const apiScope = window.env && window.env.GOOGLE_API_SCOPE;
 
+    if (!clientId) {
+      console.error("[GoogleAuth] No Google Client ID found in env");
+      return;
+    }
+
     // Initialize OAuth2 with Google configuration
     this.oauth2 = new OAuth2("google", {
       client_id: clientId,
       client_secret: clientSecret,
-      api_scope: apiScope,
+      api_scope: apiScope || "openid email profile",
     });
 
     // Try to load existing tokens
@@ -47,17 +54,38 @@ class GoogleAuth {
       callback(null, "OAuth2 not initialized");
       return;
     }
+
     console.log("[GoogleAuth] signIn() - calling authorize...");
-    this.oauth2.authorize((auth, error) => {
+    this.oauth2.authorize(async (auth, error) => {
       if (auth) {
         console.log("[GoogleAuth] OAuth2 authorization successful");
         this.isAuthenticated = true;
 
-        // Get user info
-        this.getUserInfo((userInfo) => {
-          this.userInfo = userInfo;
-          this.onAuthStateChanged(true, userInfo);
-          callback(userInfo);
+        // Get user info first
+        this.getUserInfo(async (userInfo, userError) => {
+          if (userInfo) {
+            this.userInfo = userInfo;
+
+            // Try to get Firebase ID token and create user profile
+            try {
+              await this.createFirebaseUser(userInfo);
+              await this.createUserProfileInBackend(userInfo);
+
+              this.onAuthStateChanged(true, userInfo);
+              callback(userInfo);
+            } catch (firebaseError) {
+              console.warn(
+                "[GoogleAuth] Firebase setup failed, but continuing:",
+                firebaseError
+              );
+              // Continue even if Firebase setup fails
+              this.onAuthStateChanged(true, userInfo);
+              callback(userInfo);
+            }
+          } else {
+            console.error("[GoogleAuth] Failed to get user info:", userError);
+            callback(null, userError || "Failed to get user info");
+          }
         });
       } else {
         console.error("[GoogleAuth] OAuth2 authorization failed:", error);
@@ -68,18 +96,216 @@ class GoogleAuth {
     });
   }
 
-  signOut(callback) {
-    console.log("[GoogleAuth] signOut()");
-    if (this.oauth2) {
-      this.oauth2.clearTokens();
+  async createFirebaseUser(userInfo) {
+    console.log("[GoogleAuth] Creating Firebase user...");
+
+    if (!this.oauth2.accessToken) {
+      throw new Error("No access token available");
     }
 
-    this.isAuthenticated = false;
-    this.userInfo = null;
-    this.onAuthStateChanged(false, null);
+    // Get ID token from Google OAuth response
+    try {
+      // Check if we have an ID token from the OAuth2 flow
+      const storedTokens = await new Promise((resolve) => {
+        chrome.storage.local.get(["oauth_id_token"], resolve);
+      });
 
-    if (callback) {
-      callback();
+      let idToken = storedTokens.oauth_id_token;
+
+      if (idToken) {
+        console.log("[GoogleAuth] Using stored ID token from OAuth2 flow");
+        await this.signInWithFirebaseIdToken(idToken);
+      } else {
+        console.log("[GoogleAuth] No stored ID token, trying to get fresh one");
+        // Try to get a fresh ID token by making a request to Google
+        await this.getGoogleIdToken();
+      }
+    } catch (error) {
+      console.error("[GoogleAuth] Firebase user creation failed:", error);
+      throw error;
+    }
+  }
+
+  async getGoogleIdToken() {
+    console.log("[GoogleAuth] Getting fresh Google ID token...");
+
+    try {
+      // Make a request to Google's tokeninfo endpoint to get ID token
+      const response = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          access_token: this.oauth2.accessToken,
+          grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+          requested_token_type: "urn:ietf:params:oauth:token-type:id_token",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.id_token) {
+          await this.signInWithFirebaseIdToken(data.id_token);
+          return;
+        }
+      }
+
+      // Fallback: Use access token directly (less secure but functional)
+      console.log("[GoogleAuth] Falling back to access token approach");
+      await this.createCustomFirebaseToken(userInfo);
+    } catch (error) {
+      console.error("[GoogleAuth] Error getting ID token:", error);
+      // Final fallback
+      await this.createCustomFirebaseToken(userInfo);
+    }
+  }
+
+  async signInWithFirebaseIdToken(idToken) {
+    console.log("[GoogleAuth] Signing in with Firebase ID token");
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
+      authDomain: "trolley-app-4885d.firebaseapp.com",
+      projectId: "trolley-app-4885d",
+    };
+
+    try {
+      const response = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${firebaseConfig.apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            postBody: `id_token=${idToken}&providerId=google.com`,
+            requestUri: "http://localhost",
+            returnIdpCredential: true,
+            returnSecureToken: true,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Firebase signIn failed: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("[GoogleAuth] Firebase signIn successful:", data);
+
+      if (data.idToken) {
+        this.firebaseIdToken = data.idToken;
+
+        // Store Firebase ID token in Chrome storage for background script
+        chrome.runtime.sendMessage({
+          action: "storeFirebaseToken",
+          token: data.idToken,
+        });
+
+        console.log("[GoogleAuth] Firebase ID token stored successfully");
+      } else {
+        throw new Error("No Firebase ID token in response");
+      }
+
+      return data;
+    } catch (error) {
+      console.error("[GoogleAuth] Firebase signIn error:", error);
+      throw error;
+    }
+  }
+
+  async createCustomFirebaseToken(userInfo) {
+    console.log(
+      "[GoogleAuth] Creating custom Firebase token for user:",
+      userInfo.email
+    );
+
+    // For development: Use a simplified approach
+    // In production, you'd want to exchange the Google token for a custom Firebase token via your backend
+
+    try {
+      // Try to create a custom token through our backend
+      const response = await fetch(
+        "http://localhost:3000/api/auth/google-token",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            googleAccessToken: this.oauth2.accessToken,
+            userInfo: userInfo,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.firebaseToken) {
+          this.firebaseIdToken = data.firebaseToken;
+
+          chrome.runtime.sendMessage({
+            action: "storeFirebaseToken",
+            token: data.firebaseToken,
+          });
+
+          console.log("[GoogleAuth] Custom Firebase token created via backend");
+          return;
+        }
+      }
+    } catch (error) {
+      console.log("[GoogleAuth] Backend token exchange failed:", error.message);
+    }
+
+    // Final fallback: Use Google access token (will need backend adjustment)
+    console.log("[GoogleAuth] Using Google access token as fallback");
+    this.firebaseIdToken = this.oauth2.accessToken;
+
+    chrome.runtime.sendMessage({
+      action: "storeFirebaseToken",
+      token: this.oauth2.accessToken,
+    });
+  }
+
+  async createUserProfileInBackend(userInfo) {
+    console.log("[GoogleAuth] Creating user profile in backend...");
+
+    try {
+      // Wait a moment for token to be stored
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      const profileData = {
+        email: userInfo.email,
+        displayName: userInfo.name || userInfo.email.split("@")[0],
+        photoURL: userInfo.picture,
+        emailVerified: userInfo.verified_email,
+        createdAt: new Date().toISOString(),
+      };
+
+      const response = await fetch("http://localhost:3000/api/users/profile", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.firebaseIdToken}`,
+        },
+        body: JSON.stringify(profileData),
+      });
+
+      if (response.ok) {
+        console.log("[GoogleAuth] User profile created/updated in backend");
+      } else {
+        const errorText = await response.text();
+        console.warn(
+          "[GoogleAuth] Failed to create user profile:",
+          response.status,
+          errorText
+        );
+      }
+    } catch (error) {
+      console.warn("[GoogleAuth] Error creating user profile:", error.message);
+      // Continue anyway - user can still use the extension
     }
   }
 
@@ -97,16 +323,10 @@ class GoogleAuth {
 
     xhr.onreadystatechange = () => {
       if (xhr.readyState === 4) {
-        console.log("[OAuth2] Token exchange status:", xhr.status);
-        console.log("[OAuth2] Token exchange responseText:", xhr.responseText);
         if (xhr.status === 200) {
           try {
             const response = JSON.parse(xhr.responseText);
-            console.log("[OAuth2] Token response:", response);
-            // Якщо у відповіді є id_token, логінити у Firebase
-            if (response.id_token) {
-              signInWithFirebaseIdToken(response.id_token);
-            }
+            console.log("[GoogleAuth] User info retrieved:", response);
             callback(response);
           } catch (error) {
             console.error("[GoogleAuth] Error parsing user info:", error);
@@ -126,29 +346,53 @@ class GoogleAuth {
     xhr.send();
   }
 
-  getCurrentUser() {
-    return this.userInfo;
+  signOut(callback) {
+    console.log("[GoogleAuth] signOut()");
+
+    // Clear OAuth2 tokens
+    if (this.oauth2) {
+      this.oauth2.clearTokens();
+    }
+
+    // Clear Firebase token
+    chrome.runtime.sendMessage({
+      action: "clearAuth",
+    });
+
+    // Reset state
+    this.isAuthenticated = false;
+    this.userInfo = null;
+    this.firebaseIdToken = null;
+
+    // Notify listeners
+    this.onAuthStateChanged(false, null);
+
+    if (callback) {
+      callback();
+    }
   }
 
+  setAuthStateChangeCallback(callback) {
+    this.authStateChangeCallback = callback;
+  }
+
+  onAuthStateChanged(isSignedIn, userInfo) {
+    console.log(
+      "[GoogleAuth] Auth state changed:",
+      isSignedIn ? "signed in" : "signed out"
+    );
+    if (this.authStateChangeCallback) {
+      this.authStateChangeCallback(isSignedIn, userInfo);
+    }
+  }
+
+  // Check if user is currently authenticated
   isSignedIn() {
     return this.isAuthenticated && this.userInfo !== null;
   }
 
-  getAccessToken() {
-    return this.oauth2 ? this.oauth2.accessToken : null;
-  }
-
-  // Callback for auth state changes
-  onAuthStateChanged(isSignedIn, userInfo) {
-    // This will be overridden by the popup
-    console.log("[GoogleAuth] Auth state changed:", isSignedIn, userInfo);
-  }
-
-  // Set auth state change callback
-  setAuthStateChangeCallback(callback) {
-    this.onAuthStateChanged = callback;
+  // Get current user info
+  getCurrentUser() {
+    return this.userInfo;
   }
 }
-
-// Make GoogleAuth available globally
-window.GoogleAuth = GoogleAuth;
