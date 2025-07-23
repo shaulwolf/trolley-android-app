@@ -7,3 +7,4 @@ node_modules/
 
 # Environment configuration (contains secrets)
 universal_cart_extension_claude_with-sync/env.js
+trolley-backend/firebase-service-account.json
