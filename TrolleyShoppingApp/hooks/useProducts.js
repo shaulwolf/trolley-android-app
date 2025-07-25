@@ -15,16 +15,20 @@ export const useProducts = () => {
   useEffect(() => {
     console.log("🔄 Setting up auth state listener");
 
-    const unsubscribe = auth().onAuthStateChanged((user) => {
+    const unsubscribe = auth().onAuthStateChanged(async (user) => {
       console.log(
         "🔄 Auth state changed:",
         user ? `User: ${user.email}` : "No user"
       );
       setUser(user);
+      setError(null); // Clear any previous errors
 
       if (user) {
         console.log("✅ User authenticated, loading products");
-        loadProducts();
+        // Wait a moment for Firebase to be fully ready
+        setTimeout(() => {
+          loadProducts();
+        }, 500);
       } else {
         console.log("❌ No user, clearing products");
         setProducts([]);
@@ -36,10 +40,21 @@ export const useProducts = () => {
     return unsubscribe;
   }, []);
 
+  // Add a separate effect to handle user changes and reload products
+  useEffect(() => {
+    if (user) {
+      console.log(
+        "👤 User effect triggered, loading products for:",
+        user.email
+      );
+      loadProducts();
+    }
+  }, [user?.uid]); // Only trigger when user ID changes
+
   const loadProducts = async () => {
     if (!user) {
       console.log("❌ No user in loadProducts");
-      setIsLoading(false); // Stop loading if no user
+      setIsLoading(false);
       return;
     }
 
@@ -66,9 +81,9 @@ export const useProducts = () => {
       console.error("❌ Error loading products from backend:", error);
       setError(error.message);
 
-      // Set empty products on error so UI shows empty state instead of loading
-      setProducts([]);
-      setCustomCategories([]);
+      // Don't clear products immediately on error - keep existing state
+      // setProducts([]);
+      // setCustomCategories([]);
     } finally {
       setIsLoading(false);
       console.log("✅ Loading complete, isLoading set to false");

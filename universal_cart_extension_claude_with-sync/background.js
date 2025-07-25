@@ -17,6 +17,224 @@ async function storeFirebaseToken(token) {
   });
 }
 
+// OAuth in background to avoid popup closing issues
+async function performOAuthInBackground() {
+  return new Promise((resolve, reject) => {
+    console.log("🔐 Starting OAuth in background...");
+
+    const clientId =
+      "472976602572-0ir3i5jtc0itabq7upanaqd7rnr8ofv1.apps.googleusercontent.com";
+    const redirectUri = chrome.identity.getRedirectURL();
+    const scope = "openid email profile";
+
+    const authUrl =
+      `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${clientId}&` +
+      `response_type=code&` +
+      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+      `scope=${encodeURIComponent(scope)}&` +
+      `access_type=offline&` +
+      `prompt=consent`;
+
+    console.log("🌐 Launching OAuth flow:", authUrl);
+
+    chrome.identity.launchWebAuthFlow(
+      {
+        url: authUrl,
+        interactive: true,
+      },
+      async (redirectUrl) => {
+        if (chrome.runtime.lastError) {
+          console.error(
+            "❌ OAuth flow error:",
+            chrome.runtime.lastError.message
+          );
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        if (!redirectUrl) {
+          console.error("❌ No redirect URL received");
+          reject(new Error("No redirect URL received"));
+          return;
+        }
+
+        try {
+          console.log("✅ OAuth redirect received:", redirectUrl);
+
+          // Витягти код авторизації
+          const url = new URL(redirectUrl);
+          const code = url.searchParams.get("code");
+
+          if (!code) {
+            reject(new Error("No authorization code received"));
+            return;
+          }
+
+          console.log(
+            "🔑 Authorization code received, exchanging for tokens..."
+          );
+
+          // Обміняти код на токени
+          const tokenResponse = await exchangeCodeForTokens(
+            code,
+            clientId,
+            redirectUri
+          );
+
+          console.log("🎫 Tokens received, getting user info...");
+
+          // Отримати інформацію про користувача
+          const userInfo = await getUserInfoFromGoogle(
+            tokenResponse.access_token
+          );
+
+          console.log("👤 User info received:", userInfo.email);
+
+          // Створити Firebase користувача
+          const firebaseResult = await createFirebaseUser(
+            tokenResponse.id_token,
+            userInfo
+          );
+
+          console.log("🔥 Firebase user created successfully");
+
+          resolve({
+            userInfo: userInfo,
+            tokens: tokenResponse,
+            firebaseToken: firebaseResult.idToken,
+          });
+        } catch (error) {
+          console.error("❌ OAuth processing failed:", error);
+          reject(error);
+        }
+      }
+    );
+  });
+}
+
+// Обміняти код на токени
+async function exchangeCodeForTokens(code, clientId, redirectUri) {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      code: code,
+      client_id: clientId,
+      client_secret: "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",
+      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ Token exchange failed:", response.status, errorText);
+    throw new Error(`Token exchange failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  console.log("✅ Token exchange successful");
+  return result;
+}
+
+// Отримати інформацію про користувача з Google
+async function getUserInfoFromGoogle(accessToken) {
+  const response = await fetch(
+    `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${accessToken}`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ Failed to get user info:", response.status, errorText);
+    throw new Error(`Failed to get user info: ${response.status}`);
+  }
+
+  const result = await response.json();
+  console.log("✅ User info retrieved successfully");
+  return result;
+}
+
+// Створити Firebase користувача
+async function createFirebaseUser(idToken, userInfo) {
+  const firebaseConfig = {
+    apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
+  };
+
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${firebaseConfig.apiKey}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requestUri: chrome.identity.getRedirectURL(),
+        postBody: `id_token=${idToken}&providerId=google.com`,
+        returnSecureToken: true,
+        returnIdpCredential: true,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("❌ Firebase auth failed:", response.status, errorText);
+    throw new Error(`Firebase auth failed: ${response.status}`);
+  }
+
+  const result = await response.json();
+  console.log("✅ Firebase authentication successful");
+
+  // Зберегти Firebase токен
+  await storeFirebaseToken(result.idToken);
+
+  // Створити профіль користувача в backend
+  try {
+    await createUserProfileInBackend(userInfo, result.idToken);
+  } catch (error) {
+    console.warn("⚠️ Backend profile creation failed (continuing):", error);
+  }
+
+  return result;
+}
+
+// Створити профіль користувача в backend
+async function createUserProfileInBackend(userInfo, firebaseToken) {
+  try {
+    const response = await fetch(
+      `${BACKEND_URL}/api/products/auth/google-token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${firebaseToken}`,
+        },
+        body: JSON.stringify({
+          googleAccessToken: "background-auth",
+          userInfo: {
+            id: userInfo.id,
+            email: userInfo.email,
+            name: userInfo.name,
+            picture: userInfo.picture,
+            verified_email: userInfo.verified_email,
+          },
+        }),
+      }
+    );
+
+    if (response.ok) {
+      console.log("✅ Backend user profile created/updated");
+    } else {
+      console.warn("⚠️ Backend profile creation failed:", response.status);
+    }
+  } catch (error) {
+    console.warn("⚠️ Backend profile creation error:", error);
+  }
+}
+
 // Make authenticated API request
 async function makeAuthenticatedRequest(url, options = {}) {
   const token = await getFirebaseToken();
@@ -169,14 +387,14 @@ async function extractProductInfo(url) {
 function serverToChrome(products) {
   const chromeData = {};
 
+  // Always create "All Items" folder for compatibility
+  chromeData["All Items"] = [];
+
   products.forEach((product) => {
     const category = product.category || "general";
 
-    if (!chromeData[category]) {
-      chromeData[category] = [];
-    }
-
-    chromeData[category].push({
+    // Add to "All Items" folder
+    chromeData["All Items"].push({
       id: product.id,
       url: product.url,
       title: product.title,
@@ -188,6 +406,26 @@ function serverToChrome(products) {
       variants: product.variants || {},
       dateAdded: product.dateAdded,
     });
+
+    // Also add to category folder if not "general"
+    if (category !== "general") {
+      if (!chromeData[category]) {
+        chromeData[category] = [];
+      }
+
+      chromeData[category].push({
+        id: product.id,
+        url: product.url,
+        title: product.title,
+        price: product.price,
+        originalPrice: product.originalPrice,
+        image: product.image,
+        site: product.site,
+        displaySite: product.displaySite,
+        variants: product.variants || {},
+        dateAdded: product.dateAdded,
+      });
+    }
   });
 
   return chromeData;
@@ -219,6 +457,29 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("📨 Received message:", request);
+
+  if (request.action === "performOAuth") {
+    console.log("🔐 OAuth requested from popup");
+
+    performOAuthInBackground()
+      .then((result) => {
+        console.log("✅ Background OAuth completed successfully");
+        sendResponse({
+          success: true,
+          userInfo: result.userInfo,
+          firebaseToken: result.firebaseToken,
+        });
+      })
+      .catch((error) => {
+        console.error("❌ Background OAuth failed:", error);
+        sendResponse({
+          success: false,
+          error: error.message,
+        });
+      });
+
+    return true; // Keep message channel open for async response
+  }
 
   if (request.action === "getAllProducts") {
     console.log("📥 Get all products requested");

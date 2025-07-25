@@ -27,6 +27,18 @@ class ApiService {
       return idToken;
     } catch (error) {
       console.error("❌ Error getting auth token:", error);
+
+      // If token is expired or invalid, sign out user
+      if (
+        error.code === "auth/network-request-failed" ||
+        error.code === "auth/user-token-expired" ||
+        error.message.includes("token") ||
+        error.message.includes("expired")
+      ) {
+        console.log("🚪 Token expired, signing out user");
+        await auth().signOut();
+      }
+
       throw new Error("Failed to get authentication token");
     }
   }
@@ -66,6 +78,13 @@ class ApiService {
 
       console.log("🌐 Response status:", response.status);
 
+      // Handle authentication errors
+      if (response.status === 401 || response.status === 403) {
+        console.log("🚪 Authentication failed, signing out user");
+        await auth().signOut();
+        throw new Error("Authentication failed - please login again");
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error("❌ Request failed:", response.status, errorText);
@@ -80,6 +99,15 @@ class ApiService {
       return data;
     } catch (error) {
       console.error("❌ API request error:", error);
+
+      // Handle network or authentication errors
+      if (
+        error.message.includes("Authentication failed") ||
+        error.message.includes("Failed to get authentication token")
+      ) {
+        // User will be redirected to login automatically by auth state change
+      }
+
       throw error;
     }
   }

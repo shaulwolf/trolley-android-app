@@ -98,11 +98,21 @@ export const useSync = (products, customCategories, updateProductsFromSync) => {
         "products"
       );
 
-      Alert.alert(
-        "Sync Complete! ✅",
-        `Downloaded ${serverProducts.length} products from server.`,
-        [{ text: "OK" }]
-      );
+      // Show detailed sync results
+      const currentCount = products.length;
+      const newCount = serverProducts.length;
+      const difference = newCount - currentCount;
+
+      let message = `Found ${newCount} products on server.`;
+      if (difference > 0) {
+        message += `\n+ ${difference} new products added`;
+      } else if (difference < 0) {
+        message += `\n${Math.abs(difference)} products removed`;
+      } else {
+        message += `\nAll products are up to date`;
+      }
+
+      Alert.alert("Sync Complete! ✅", message, [{ text: "OK" }]);
 
       return serverProducts;
     } catch (error) {

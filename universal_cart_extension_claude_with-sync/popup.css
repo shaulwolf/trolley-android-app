@@ -516,18 +516,43 @@ body {
 
 .product-pricing {
   margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .original-price {
-  font-size: 14px;
+  font-size: 13px;
   color: #6c757d;
   text-decoration: line-through;
-  margin-right: 8px;
+  font-weight: 400;
 }
 
 .sale-price {
   font-size: 14px;
   color: #dc3545;
+  font-weight: 600;
+}
+
+/* Discount badge styling */
+.discount-badge {
+  font-size: 11px;
+  background: #dc3545;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+/* Price styling based on discount presence */
+.sale-price.has-discount {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+.sale-price.no-discount {
+  color: #212529;
   font-weight: 500;
 }
 

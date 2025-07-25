@@ -54,6 +54,7 @@ const HomePage = () => {
     products,
     customCategories,
     isLoading,
+    error,
     loadProducts,
     addProduct,
     removeProduct,
@@ -470,16 +471,17 @@ const HomePage = () => {
 
   const filteredProducts = getFilteredProducts();
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#212529" />
-          <Text style={styles.loadingText}>Loading your trolley...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  // Don't show full-screen loader - always show the UI structure
+  // if (isLoading) {
+  //   return (
+  //     <SafeAreaView style={styles.container}>
+  //       <View style={styles.loadingContainer}>
+  //         <ActivityIndicator size="large" color="#212529" />
+  //         <Text style={styles.loadingText}>Loading your trolley...</Text>
+  //       </View>
+  //     </SafeAreaView>
+  //   );
+  // }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -495,19 +497,20 @@ const HomePage = () => {
       <FilterTabs
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
+        currentFilter={currentFilter}
+        setCurrentFilter={setCurrentFilter}
+        customCategories={customCategories}
+        products={products}
         showCategoriesDropdown={showCategoriesDropdown}
         setShowCategoriesDropdown={setShowCategoriesDropdown}
         showStoresDropdown={showStoresDropdown}
         setShowStoresDropdown={setShowStoresDropdown}
         showSortDropdown={showSortDropdown}
         setShowSortDropdown={setShowSortDropdown}
-        currentFilter={currentFilter}
-        setCurrentFilter={setCurrentFilter}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         sortBy={sortBy}
         setSortBy={setSortBy}
-        products={products}
         onFocus={() => {
           setShowCategoriesDropdown(false);
           setShowStoresDropdown(false);
@@ -533,7 +536,23 @@ const HomePage = () => {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={true}
       >
-        {filteredProducts.length === 0 ? (
+        {/* Show loading indicator only for the products list */}
+        {isLoading && products.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#212529" />
+            <Text style={styles.loadingText}>Loading your trolley...</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>❌ {error}</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => loadProducts()}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : filteredProducts.length === 0 ? (
           <TouchableOpacity
             style={styles.emptyState}
             onPress={() => setIsAddModalVisible(true)}
@@ -541,7 +560,7 @@ const HomePage = () => {
           >
             <Text style={styles.emptyIcon}>🛒</Text>
             <Text style={styles.emptyTitle}>
-              {currentFilter === "all"
+              {products.length === 0
                 ? "Your trolley is empty"
                 : currentTab === "categories"
                 ? `No ${currentFilter} items`
@@ -560,12 +579,23 @@ const HomePage = () => {
           </TouchableOpacity>
         ) : (
           <>
+            {/* Show subtle loading indicator when refreshing with existing products */}
+            {isLoading && products.length > 0 && (
+              <View style={styles.subtleLoadingContainer}>
+                <ActivityIndicator size="small" color="#6c757d" />
+                <Text style={styles.subtleLoadingText}>Updating...</Text>
+              </View>
+            )}
+
             {filteredProducts.map((product) => (
               <ProductCard
                 key={product.id}
                 product={product}
-                onRemove={handleRemoveProduct}
-                onCategoryChange={openCategoryModal}
+                onRemove={() => handleRemoveProduct(product.id)}
+                onCategoryChange={() => {
+                  setEditingProductId(product.id);
+                  setIsCategoryModalVisible(true);
+                }}
               />
             ))}
 
@@ -745,6 +775,95 @@ const styles = {
   },
   disabledButtonText: {
     color: "#adb5bd",
+  },
+  content: {
+    flex: 1,
+  },
+  emptyContentContainer: {
+    flexGrow: 1,
+    justifyContent: "center",
+  },
+  errorContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    margin: 16,
+    backgroundColor: "#fff3cd",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#ffeaa7",
+  },
+  errorText: {
+    color: "#856404",
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: "#007bff",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 6,
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 40,
+    margin: 16,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: "#e9ecef",
+    borderStyle: "dashed",
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#495057",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#6c757d",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  emptyButton: {
+    backgroundColor: "#007bff",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  emptyButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  subtleLoadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 12,
+    backgroundColor: "#f8f9fa",
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 6,
+  },
+  subtleLoadingText: {
+    marginLeft: 8,
+    color: "#6c757d",
+    fontSize: 14,
   },
 };
 

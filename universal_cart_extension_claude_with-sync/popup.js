@@ -47,6 +47,39 @@ document.addEventListener("DOMContentLoaded", function () {
         showMainApp();
         updateUserInfo(userInfo);
         console.log("User signed in:", userInfo.email);
+
+        // Load user's products after successful authentication
+        console.log("🔄 Starting product load after authentication...");
+        console.log("👤 Current user set to:", userInfo.email);
+
+        // Try immediate load first
+        setTimeout(() => {
+          console.log("🔄 First attempt to load cart after auth...");
+          console.log(
+            "👤 currentUser is:",
+            currentUser ? currentUser.email : "null"
+          );
+
+          if (typeof window.loadCart === "function") {
+            console.log("✅ loadCart function found, calling it...");
+            window.loadCart();
+          } else {
+            console.log("❌ loadCart function not found");
+          }
+        }, 500);
+
+        // Backup attempt with longer delay
+        setTimeout(() => {
+          console.log("🔄 Backup attempt to load cart...");
+          if (allProducts.length === 0) {
+            console.log("📦 No products loaded yet, trying again...");
+            if (typeof window.loadCart === "function") {
+              window.loadCart();
+            }
+          } else {
+            console.log("📦 Products already loaded:", allProducts.length);
+          }
+        }, 2000);
       } else {
         // User is signed out
         currentUser = null;
@@ -67,24 +100,69 @@ document.addEventListener("DOMContentLoaded", function () {
     googleSignInBtn.disabled = true;
     googleSignInBtn.innerHTML = "Signing in...";
 
-    googleAuth.signIn((userInfo, error) => {
-      if (userInfo) {
-        console.log("Sign in successful:", userInfo.email);
+    console.log("🔐 Requesting OAuth from background script...");
+
+    // Викликати OAuth в background script
+    chrome.runtime.sendMessage({ action: "performOAuth" }, (response) => {
+      if (response && response.success) {
+        console.log("✅ Background OAuth successful:", response.userInfo.email);
+
+        // Оновити стан користувача
+        currentUser = response.userInfo;
+
+        // Показати головний інтерфейс
+        showMainApp();
+        updateUserInfo(response.userInfo);
+
+        console.log("🔄 Starting product load after successful OAuth...");
+
+        // Завантажити продукти після успішної авторизації
+        setTimeout(() => {
+          console.log("📦 Loading products after background OAuth...");
+          if (typeof window.loadCart === "function") {
+            window.loadCart();
+          } else {
+            console.log("❌ loadCart function not available");
+          }
+        }, 1000);
       } else {
-        console.error("Sign in error:", error);
+        console.error("❌ Background OAuth failed:", response?.error);
+
+        // Відновити кнопку входу
         googleSignInBtn.disabled = false;
         googleSignInBtn.innerHTML = `
           <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" class="google-icon">
           Sign in with Google
         `;
+
+        // Показати помилку користувачу
+        alert(`Sign in failed: ${response?.error || "Unknown error"}`);
       }
     });
   }
 
   function signOutUser() {
-    googleAuth.signOut(() => {
-      console.log("Sign out successful");
+    console.log("🚪 Signing out user...");
+
+    // Очистити локальний стан
+    currentUser = null;
+    allProducts = [];
+    customCategories = [];
+
+    // Очистити Chrome storage
+    chrome.storage.local.remove(["firebase_id_token", "cart"], () => {
+      console.log("✅ Chrome storage cleared");
     });
+
+    // Очистити Google OAuth токени
+    chrome.identity.clearAllCachedAuthTokens(() => {
+      console.log("✅ OAuth tokens cleared");
+    });
+
+    // Показати екран авторизації
+    showAuthSection();
+
+    console.log("✅ Sign out completed");
   }
 
   function showAuthSection() {
@@ -115,10 +193,12 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function showMainApp() {
+    console.log("🔄 Showing main app...");
     authSection.style.display = "none";
     mainApp.style.display = "flex";
-    // Load cart data after authentication
-    window.loadCart();
+
+    // Initialize cart loading - this will be called by auth callback
+    console.log("📱 Main app shown, cart will be loaded by auth callback");
   }
 
   function updateUserInfo(userInfo) {
@@ -147,6 +227,51 @@ document.addEventListener("DOMContentLoaded", function () {
     } else {
       checkoutBtn.textContent = `Open All Items (${totalItems})`;
       checkoutBtn.disabled = false;
+    }
+  }
+
+  // Helper function to calculate discount percentage
+  function calculateDiscountPercentage(originalPrice, salePrice) {
+    if (!originalPrice || !salePrice) return "";
+
+    try {
+      // Extract numeric values from prices
+      const originalNum = parseFloat(
+        originalPrice.replace(/[^0-9.,]/g, "").replace(",", ".")
+      );
+      const saleNum = parseFloat(
+        salePrice.replace(/[^0-9.,]/g, "").replace(",", ".")
+      );
+
+      // Check for invalid numbers
+      if (isNaN(originalNum) || isNaN(saleNum)) {
+        console.log("⚠️ Invalid price numbers:", { originalNum, saleNum });
+        return "";
+      }
+
+      // Check if there's actually a discount (at least 1% difference)
+      const difference = originalNum - saleNum;
+      const percentDifference = (difference / originalNum) * 100;
+
+      console.log("💰 Price comparison:", {
+        original: originalNum,
+        sale: saleNum,
+        difference: difference,
+        percentDifference: percentDifference.toFixed(1),
+      });
+
+      // Only show discount if it's at least 1% and sale price is lower
+      if (difference < 0.01 || percentDifference < 1) {
+        console.log("❌ No significant discount found");
+        return "";
+      }
+
+      const discountPercent = Math.round(percentDifference);
+      console.log(`✅ Discount calculated: -${discountPercent}%`);
+      return `-${discountPercent}%`;
+    } catch (error) {
+      console.error("Error calculating discount:", error);
+      return "";
     }
   }
 
@@ -526,6 +651,12 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchInfo = document.getElementById("searchResultsInfo");
     const searchText = document.getElementById("searchResultsText");
 
+    // Check if elements exist
+    if (!searchInfo || !searchText) {
+      console.log("⚠️ Search info elements not found, skipping update");
+      return;
+    }
+
     if (searchTerm) {
       const filteredProducts = getFilteredProducts();
       searchText.textContent = `Found ${filteredProducts.length} product${
@@ -644,14 +775,41 @@ document.addEventListener("DOMContentLoaded", function () {
                 <div class="product-info">
                     <div class="product-name">${highlightedTitle}</div>
                     <div class="product-pricing">
-                        ${
-                          product.originalPrice
-                            ? `<span class="original-price">${product.originalPrice}</span>`
-                            : ""
-                        }
-                        <span class="sale-price">${
-                          product.price || "N/A"
-                        }</span>
+                        ${(() => {
+                          if (product.originalPrice && product.price) {
+                            const discount = calculateDiscountPercentage(
+                              product.originalPrice,
+                              product.price
+                            );
+                            // Only show original price if there's a real discount
+                            return discount
+                              ? `<span class="original-price">${product.originalPrice}</span>`
+                              : "";
+                          }
+                          return "";
+                        })()}
+                        <span class="sale-price ${(() => {
+                          if (product.originalPrice && product.price) {
+                            const discount = calculateDiscountPercentage(
+                              product.originalPrice,
+                              product.price
+                            );
+                            return discount ? "has-discount" : "no-discount";
+                          }
+                          return "no-discount";
+                        })()}">${product.price || "N/A"}</span>
+                        ${(() => {
+                          if (product.originalPrice && product.price) {
+                            const discount = calculateDiscountPercentage(
+                              product.originalPrice,
+                              product.price
+                            );
+                            return discount
+                              ? `<span class="discount-badge">${discount}</span>`
+                              : "";
+                          }
+                          return "";
+                        })()}
                     </div>
                     <div class="product-details">
                         <div class="product-detail">
@@ -845,10 +1003,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
           console.log("📦 Total products loaded:", allProducts.length);
           console.log("📂 Custom categories:", customCategories.length);
+          console.log("📦 allProducts sample:", allProducts.slice(0, 3));
 
-          updateMainDropdown();
-          renderProducts();
-          updateCategoryCounts();
+          // Force UI update
+          setTimeout(() => {
+            updateMainDropdown();
+            renderProducts();
+            updateCategoryCounts();
+            console.log("✅ UI updated after loading products");
+          }, 100);
         });
       } else {
         console.error("❌ Failed to load products:", response?.error);

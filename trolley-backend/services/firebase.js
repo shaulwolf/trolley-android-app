@@ -1,6 +1,22 @@
 const admin = require("firebase-admin");
 const path = require("path");
 
+// Load environment variables first
+require("dotenv").config();
+
+// Set timezone to UTC to avoid Firebase token issues
+process.env.TZ = "UTC";
+
+// Log current time for debugging
+console.log("🕐 Server time:", new Date().toISOString());
+console.log("🌍 Timezone:", process.env.TZ || "system default");
+
+// Додайте це на початок файлу після imports
+console.log("🕐 Firebase service time check:");
+console.log("  System time:", new Date().toISOString());
+console.log("  UTC time:", new Date().toUTCString());
+console.log("  Timestamp:", Date.now());
+
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   try {

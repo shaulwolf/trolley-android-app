@@ -6,6 +6,41 @@ import { useImageLoader } from "../hooks/useImageLoader";
 const ProductCard = ({ product, onRemove, onCategoryChange }) => {
   const imageUri = useImageLoader(product.image);
 
+  const calculateDiscountPercentage = (originalPrice, salePrice) => {
+    if (!originalPrice || !salePrice) return "";
+
+    try {
+      // Extract numeric values from prices
+      const originalNum = parseFloat(
+        originalPrice.replace(/[^0-9.,]/g, "").replace(",", ".")
+      );
+      const saleNum = parseFloat(
+        salePrice.replace(/[^0-9.,]/g, "").replace(",", ".")
+      );
+
+      // Check for invalid numbers
+      if (isNaN(originalNum) || isNaN(saleNum)) {
+        console.log("⚠️ Invalid price numbers:", { originalNum, saleNum });
+        return "";
+      }
+
+      // Check if there's actually a discount (at least 1% difference)
+      const difference = originalNum - saleNum;
+      const percentDifference = (difference / originalNum) * 100;
+
+      // Only show discount if it's at least 1% and sale price is lower
+      if (difference < 0.01 || percentDifference < 1) {
+        return "";
+      }
+
+      const discountPercent = Math.round(percentDifference);
+      return `-${discountPercent}%`;
+    } catch (error) {
+      console.error("Error calculating discount:", error);
+      return "";
+    }
+  };
+
   const openProduct = (url) => {
     Linking.openURL(url);
   };
@@ -64,10 +99,50 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
 
         {/* Pricing */}
         <View style={styles.productPricing}>
-          {product.originalPrice && (
-            <Text style={styles.originalPrice}>{product.originalPrice}</Text>
-          )}
-          <Text style={styles.salePrice}>{product.price}</Text>
+          {(() => {
+            if (product.originalPrice && product.price) {
+              const discount = calculateDiscountPercentage(
+                product.originalPrice,
+                product.price
+              );
+              // Only show original price if there's a real discount
+              return discount ? (
+                <Text style={styles.originalPrice}>
+                  {product.originalPrice}
+                </Text>
+              ) : null;
+            }
+            return null;
+          })()}
+          <Text
+            style={[
+              styles.salePrice,
+              (() => {
+                if (product.originalPrice && product.price) {
+                  const discount = calculateDiscountPercentage(
+                    product.originalPrice,
+                    product.price
+                  );
+                  return discount ? styles.discountPrice : styles.normalPrice;
+                }
+                return styles.normalPrice;
+              })(),
+            ]}
+          >
+            {product.price}
+          </Text>
+          {(() => {
+            if (product.originalPrice && product.price) {
+              const discount = calculateDiscountPercentage(
+                product.originalPrice,
+                product.price
+              );
+              return discount ? (
+                <Text style={styles.discountBadge}>{discount}</Text>
+              ) : null;
+            }
+            return null;
+          })()}
         </View>
 
         {/* Store */}
@@ -160,17 +235,36 @@ const styles = {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 4,
+    flexWrap: "wrap",
   },
   originalPrice: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#6c757d",
     textDecorationLine: "line-through",
     marginRight: 8,
+    fontWeight: "400",
   },
   salePrice: {
     fontSize: 14,
+    fontWeight: "600",
+  },
+  discountPrice: {
     color: "#dc3545",
+  },
+  normalPrice: {
+    color: "#212529",
     fontWeight: "500",
+  },
+  discountBadge: {
+    fontSize: 11,
+    color: "#ffffff",
+    backgroundColor: "#dc3545",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginLeft: 6,
+    fontWeight: "600",
+    overflow: "hidden",
   },
   productSite: {
     fontSize: 12,

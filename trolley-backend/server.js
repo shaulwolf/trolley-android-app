@@ -1,6 +1,13 @@
 // Load environment variables first
 require("dotenv").config();
 
+// Set timezone to UTC to avoid Firebase token issues
+process.env.TZ = "UTC";
+
+// Log current time for debugging
+console.log("🕐 Server time:", new Date().toISOString());
+console.log("🌍 Timezone:", process.env.TZ || "system default");
+
 // server.js - Clean Universal Pure Scraper Backend with Firebase
 const express = require("express");
 const cors = require("cors");

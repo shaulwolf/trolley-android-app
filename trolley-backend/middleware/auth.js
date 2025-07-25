@@ -3,6 +3,7 @@ const { FirebaseService } = require("../services/firebase");
 const authenticateUser = async (req, res, next) => {
   try {
     console.log("🔐 Authentication middleware called");
+    console.log("🕐 Current server time:", new Date().toISOString());
     console.log("🔐 Headers:", JSON.stringify(req.headers, null, 2));
 
     const authHeader = req.headers.authorization;
@@ -26,6 +27,24 @@ const authenticateUser = async (req, res, next) => {
     const token = authHeader.substring(7);
     console.log("🔐 Extracted token length:", token.length);
     console.log("🔐 Token preview:", token.substring(0, 50) + "...");
+
+    // Decode token to check expiration
+    const decoded = JSON.parse(
+      Buffer.from(token.split(".")[1], "base64").toString()
+    );
+    console.log(
+      "🕐 Token issued at:",
+      new Date(decoded.iat * 1000).toISOString()
+    );
+    console.log(
+      "🕐 Token expires at:",
+      new Date(decoded.exp * 1000).toISOString()
+    );
+    console.log(
+      "🕐 Time until expiry:",
+      Math.floor((decoded.exp * 1000 - Date.now()) / 1000),
+      "seconds"
+    );
 
     console.log("🔐 Verifying Firebase ID token...");
     const decodedToken = await FirebaseService.verifyIdToken(token);

@@ -1,13 +1,10 @@
 {
   "expo": {
     "name": "Trolley",
-    "slug": "trolley-shopping-app",
+    "slug": "trolley-app-arthur",
     "version": "1.0.0",
     "orientation": "portrait",
-    "platforms": [
-      "ios",
-      "android"
-    ],
+    "platforms": ["ios", "android"],
     "android": {
       "package": "com.trolley.app",
       "versionCode": 1,
@@ -31,7 +28,7 @@
               "host": "*"
             },
             {
-              "scheme": "http", 
+              "scheme": "http",
               "host": "*"
             }
           ],
@@ -42,20 +39,15 @@
         }
       ]
     },
-    "extra": {
-      "eas": {
-        "projectId": "e2aff7c8-5f40-4673-ab3b-3a09e1578f6f"
-      }
-    },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/e2aff7c8-5f40-4673-ab3b-3a09e1578f6f"
-    },
+    "runtimeVersion": "1.0.0",
     "ios": {
       "bundleIdentifier": "com.shaulwolf.trolley",
       "supportsTablet": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4e006468-4cc2-46ef-959d-100b30c29545"
+      }
     }
   }
 }
