@@ -12,6 +12,19 @@ const userAvatar = document.getElementById("userAvatar");
 const userName = document.getElementById("userName");
 const userEmail = document.getElementById("userEmail");
 
+// Email auth elements
+const signInTab = document.getElementById("signInTab");
+const signUpTab = document.getElementById("signUpTab");
+const emailInput = document.getElementById("emailInput");
+const passwordInput = document.getElementById("passwordInput");
+const emailAuthBtn = document.getElementById("emailAuthBtn");
+const emailAuthBtnText = document.getElementById("emailAuthBtnText");
+
+// Auth state
+let currentUser = null;
+let googleAuth = null;
+let isSignInMode = true; // true = sign in, false = sign up
+
 // DOM elements
 const cartContainer = document.getElementById("cart-container");
 const syncButton = document.getElementById("syncButton");
@@ -19,14 +32,13 @@ const syncStatus = document.getElementById("syncStatus");
 const productCount = document.getElementById("product-count");
 const clearAllButton = document.getElementById("clear-all-button");
 
-// Auth state
-let currentUser = null;
-let googleAuth = null;
-
 // Initialize popup
 document.addEventListener("DOMContentLoaded", function () {
   // Initialize Google Auth
   initializeGoogleAuth();
+
+  // Initialize Email Auth
+  initializeEmailAuth();
 
   let customCategories = [];
   let customStores = [];
@@ -163,6 +175,157 @@ document.addEventListener("DOMContentLoaded", function () {
     showAuthSection();
 
     console.log("✅ Sign out completed");
+  }
+
+  // Email Authentication Functions
+  function initializeEmailAuth() {
+    // Tab switching
+    signInTab.addEventListener("click", () => switchAuthMode(true));
+    signUpTab.addEventListener("click", () => switchAuthMode(false));
+
+    // Form submission
+    emailAuthBtn.addEventListener("click", handleEmailAuth);
+
+    // Enter key submission
+    emailInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") handleEmailAuth();
+    });
+    passwordInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") handleEmailAuth();
+    });
+  }
+
+  function switchAuthMode(signIn) {
+    isSignInMode = signIn;
+
+    // Update tabs
+    signInTab.classList.toggle("active", signIn);
+    signUpTab.classList.toggle("active", !signIn);
+
+    // Update button text
+    emailAuthBtnText.textContent = signIn ? "Sign In" : "Sign Up";
+
+    // Clear inputs
+    emailInput.value = "";
+    passwordInput.value = "";
+  }
+
+  function handleEmailAuth() {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (!email || !password) {
+      alert("Please enter both email and password");
+      return;
+    }
+
+    if (!isSignInMode && password.length < 6) {
+      alert("Password must be at least 6 characters long");
+      return;
+    }
+
+    // Disable button and show loading
+    emailAuthBtn.disabled = true;
+    emailAuthBtnText.textContent = "Please wait...";
+
+    if (isSignInMode) {
+      signInWithEmail(email, password);
+    } else {
+      signUpWithEmail(email, password);
+    }
+  }
+
+  function signInWithEmail(email, password) {
+    console.log("🔐 Signing in with email:", email);
+
+    chrome.runtime.sendMessage(
+      {
+        action: "emailSignIn",
+        email: email,
+        password: password,
+      },
+      (response) => {
+        if (response && response.success) {
+          console.log("✅ Email sign in successful:", response.userInfo.email);
+
+          // Update user state
+          currentUser = response.userInfo;
+
+          // Show main app
+          showMainApp();
+          updateUserInfo(response.userInfo);
+
+          // Load products
+          setTimeout(() => {
+            console.log("📦 Loading products after email sign in...");
+            if (typeof window.loadCart === "function") {
+              window.loadCart();
+            }
+          }, 1000);
+        } else {
+          console.error("❌ Email sign in failed:", response?.error);
+          alert(`Sign in failed: ${getErrorMessage(response?.error)}`);
+        }
+
+        // Re-enable button
+        emailAuthBtn.disabled = false;
+        emailAuthBtnText.textContent = "Sign In";
+      }
+    );
+  }
+
+  function signUpWithEmail(email, password) {
+    console.log("📝 Signing up with email:", email);
+
+    chrome.runtime.sendMessage(
+      {
+        action: "emailSignUp",
+        email: email,
+        password: password,
+      },
+      (response) => {
+        if (response && response.success) {
+          console.log("✅ Email sign up successful:", response.userInfo.email);
+
+          alert(
+            "Registration successful! A verification email has been sent to your email address. Please check your inbox."
+          );
+
+          // Switch to sign in mode
+          switchAuthMode(true);
+        } else {
+          console.error("❌ Email sign up failed:", response?.error);
+          alert(`Registration failed: ${getErrorMessage(response?.error)}`);
+        }
+
+        // Re-enable button
+        emailAuthBtn.disabled = false;
+        emailAuthBtnText.textContent = "Sign Up";
+      }
+    );
+  }
+
+  function getErrorMessage(errorCode) {
+    switch (errorCode) {
+      case "auth/user-not-found":
+        return "No user found with this email";
+      case "auth/wrong-password":
+        return "Incorrect password";
+      case "auth/invalid-email":
+        return "Invalid email format";
+      case "auth/user-disabled":
+        return "Account has been disabled";
+      case "auth/too-many-requests":
+        return "Too many attempts. Please try again later";
+      case "auth/email-already-in-use":
+        return "This email is already in use";
+      case "auth/weak-password":
+        return "Password is too weak";
+      case "auth/operation-not-allowed":
+        return "Email registration is disabled";
+      default:
+        return errorCode || "Unknown error";
+    }
   }
 
   function showAuthSection() {

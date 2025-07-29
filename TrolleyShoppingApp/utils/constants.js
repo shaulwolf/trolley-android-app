@@ -1,5 +1,5 @@
 export const STORAGE_KEY = "@trolley_products";
-export const BACKEND_URL = "https://a6371816763d.ngrok-free.app";
+export const BACKEND_URL = "http://10.0.2.2:3000";
 
 export const SORT_OPTIONS = [
   { label: "Recently Added", value: "recently-added" },

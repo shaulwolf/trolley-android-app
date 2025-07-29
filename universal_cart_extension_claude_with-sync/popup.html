@@ -30,6 +30,43 @@
       <div class="auth-container">
         <h2>Welcome to Trolley</h2>
         <p>Sign in to sync your products across devices</p>
+
+        <!-- Email/Password Form -->
+        <div class="auth-form" id="authForm">
+          <div class="auth-tabs">
+            <button class="auth-tab active" id="signInTab">Sign In</button>
+            <button class="auth-tab" id="signUpTab">Sign Up</button>
+          </div>
+
+          <div class="form-container">
+            <input
+              type="email"
+              id="emailInput"
+              placeholder="Email"
+              class="auth-input"
+              autocomplete="email"
+            />
+            <input
+              type="password"
+              id="passwordInput"
+              placeholder="Password"
+              class="auth-input"
+              autocomplete="current-password"
+            />
+            <button class="email-auth-btn" id="emailAuthBtn">
+              <span id="emailAuthBtnText">Sign In</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="auth-divider">
+          <span class="divider-line"></span>
+          <span class="divider-text">or</span>
+          <span class="divider-line"></span>
+        </div>
+
+        <!-- Google Sign In -->
         <button class="google-signin-btn" id="googleSignInBtn">
           <img
             src="https://developers.google.com/identity/images/g-logo.png"

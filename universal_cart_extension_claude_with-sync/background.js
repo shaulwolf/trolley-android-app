@@ -1,6 +1,11 @@
 // Enhanced Trolley Background Service with Firebase Auth
 const BACKEND_URL = "http://localhost:3000";
 
+// Firebase Configuration
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
+};
+
 // Get current Firebase ID token
 async function getFirebaseToken() {
   return new Promise((resolve) => {
@@ -454,6 +459,139 @@ chrome.runtime.onInstalled.addListener(() => {
   updateBadge();
 });
 
+// Email Authentication Functions
+async function emailSignInInBackground(email, password) {
+  console.log("🔐 Starting email sign in process...");
+
+  try {
+    // Sign in with Firebase Auth REST API
+    const signInResponse = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_CONFIG.apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email,
+          password: password,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    const signInData = await signInResponse.json();
+
+    if (!signInResponse.ok) {
+      throw new Error(signInData.error?.message || "Sign in failed");
+    }
+
+    console.log("✅ Firebase email sign in successful");
+
+    // Create user info object
+    const userInfo = {
+      uid: signInData.localId,
+      email: signInData.email,
+      displayName: signInData.displayName || email.split("@")[0],
+      emailVerified: signInData.emailVerified || false,
+      photoURL: null,
+    };
+
+    // Store Firebase ID token
+    chrome.storage.local.set({
+      firebase_id_token: signInData.idToken,
+      firebase_refresh_token: signInData.refreshToken,
+    });
+
+    // Create user profile in backend
+    await createUserProfileInBackend(userInfo, signInData.idToken);
+
+    return {
+      userInfo: userInfo,
+      firebaseToken: signInData.idToken,
+    };
+  } catch (error) {
+    console.error("❌ Email sign in error:", error);
+    throw error;
+  }
+}
+
+async function emailSignUpInBackground(email, password) {
+  console.log("📝 Starting email sign up process...");
+
+  try {
+    // Sign up with Firebase Auth REST API
+    const signUpResponse = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_CONFIG.apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email,
+          password: password,
+          returnSecureToken: true,
+        }),
+      }
+    );
+
+    const signUpData = await signUpResponse.json();
+
+    if (!signUpResponse.ok) {
+      throw new Error(signUpData.error?.message || "Sign up failed");
+    }
+
+    console.log("✅ Firebase email sign up successful");
+
+    // Send email verification
+    try {
+      await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FIREBASE_CONFIG.apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            requestType: "VERIFY_EMAIL",
+            idToken: signUpData.idToken,
+          }),
+        }
+      );
+      console.log("📧 Verification email sent");
+    } catch (emailError) {
+      console.warn("⚠️ Failed to send verification email:", emailError);
+    }
+
+    // Create user info object
+    const userInfo = {
+      uid: signUpData.localId,
+      email: signUpData.email,
+      displayName: email.split("@")[0],
+      emailVerified: false,
+      photoURL: null,
+    };
+
+    // Store Firebase ID token
+    chrome.storage.local.set({
+      firebase_id_token: signUpData.idToken,
+      firebase_refresh_token: signUpData.refreshToken,
+    });
+
+    // Create user profile in backend
+    await createUserProfileInBackend(userInfo, signUpData.idToken);
+
+    return {
+      userInfo: userInfo,
+      firebaseToken: signUpData.idToken,
+    };
+  } catch (error) {
+    console.error("❌ Email sign up error:", error);
+    throw error;
+  }
+}
+
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("📨 Received message:", request);
@@ -475,6 +613,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error.message,
+        });
+      });
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "emailSignIn") {
+    console.log("📧 Email sign in requested:", request.email);
+
+    emailSignInInBackground(request.email, request.password)
+      .then((result) => {
+        console.log("✅ Email sign in completed successfully");
+        sendResponse({
+          success: true,
+          userInfo: result.userInfo,
+          firebaseToken: result.firebaseToken,
+        });
+      })
+      .catch((error) => {
+        console.error("❌ Email sign in failed:", error);
+        sendResponse({
+          success: false,
+          error: error.code || error.message,
+        });
+      });
+
+    return true; // Keep message channel open for async response
+  }
+
+  if (request.action === "emailSignUp") {
+    console.log("📝 Email sign up requested:", request.email);
+
+    emailSignUpInBackground(request.email, request.password)
+      .then((result) => {
+        console.log("✅ Email sign up completed successfully");
+        sendResponse({
+          success: true,
+          userInfo: result.userInfo,
+          firebaseToken: result.firebaseToken,
+        });
+      })
+      .catch((error) => {
+        console.error("❌ Email sign up failed:", error);
+        sendResponse({
+          success: false,
+          error: error.code || error.message,
         });
       });
 
