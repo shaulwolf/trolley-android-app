@@ -14,7 +14,6 @@ class GoogleAuth {
   initialize() {
     console.log("[GoogleAuth] initialize()");
 
-    // Get OAuth credentials from environment variables
     const clientId = window.env && window.env.GOOGLE_CLIENT_ID;
     const clientSecret = window.env && window.env.GOOGLE_CLIENT_SECRET;
     const apiScope = window.env && window.env.GOOGLE_API_SCOPE;
@@ -24,14 +23,12 @@ class GoogleAuth {
       return;
     }
 
-    // Initialize OAuth2 with Google configuration
     this.oauth2 = new OAuth2("google", {
       client_id: clientId,
       client_secret: clientSecret,
       api_scope: apiScope || "openid email profile",
     });
 
-    // Try to load existing tokens
     this.oauth2.loadStoredTokens((auth, error) => {
       if (auth) {
         console.log("[GoogleAuth] Existing tokens loaded successfully");
@@ -61,12 +58,10 @@ class GoogleAuth {
         console.log("[GoogleAuth] OAuth2 authorization successful");
         this.isAuthenticated = true;
 
-        // Get user info first
         this.getUserInfo(async (userInfo, userError) => {
           if (userInfo) {
             this.userInfo = userInfo;
 
-            // Try to get Firebase ID token and create user profile
             try {
               await this.createFirebaseUser(userInfo);
               await this.createUserProfileInBackend(userInfo);
@@ -78,7 +73,7 @@ class GoogleAuth {
                 "[GoogleAuth] Firebase setup failed, but continuing:",
                 firebaseError
               );
-              // Continue even if Firebase setup fails
+
               this.onAuthStateChanged(true, userInfo);
               callback(userInfo);
             }
@@ -103,9 +98,7 @@ class GoogleAuth {
       throw new Error("No access token available");
     }
 
-    // Get ID token from Google OAuth response
     try {
-      // Check if we have an ID token from the OAuth2 flow
       const storedTokens = await new Promise((resolve) => {
         chrome.storage.local.get(["oauth_id_token"], resolve);
       });
@@ -117,7 +110,7 @@ class GoogleAuth {
         await this.signInWithFirebaseIdToken(idToken);
       } else {
         console.log("[GoogleAuth] No stored ID token, trying to get fresh one");
-        // Try to get a fresh ID token by making a request to Google
+
         await this.getGoogleIdToken();
       }
     } catch (error) {
@@ -130,7 +123,6 @@ class GoogleAuth {
     console.log("[GoogleAuth] Getting fresh Google ID token...");
 
     try {
-      // Make a request to Google's tokeninfo endpoint to get ID token
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: {
@@ -151,12 +143,11 @@ class GoogleAuth {
         }
       }
 
-      // Fallback: Use access token directly (less secure but functional)
       console.log("[GoogleAuth] Falling back to access token approach");
       await this.createCustomFirebaseToken(userInfo);
     } catch (error) {
       console.error("[GoogleAuth] Error getting ID token:", error);
-      // Final fallback
+
       await this.createCustomFirebaseToken(userInfo);
     }
   }
@@ -198,7 +189,6 @@ class GoogleAuth {
       if (data.idToken) {
         this.firebaseIdToken = data.idToken;
 
-        // Store Firebase ID token in Chrome storage for background script
         chrome.runtime.sendMessage({
           action: "storeFirebaseToken",
           token: data.idToken,
@@ -222,11 +212,7 @@ class GoogleAuth {
       userInfo.email
     );
 
-    // For development: Use a simplified approach
-    // In production, you'd want to exchange the Google token for a custom Firebase token via your backend
-
     try {
-      // Try to create a custom token through our backend
       const response = await fetch(
         "http://localhost:3000/api/auth/google-token",
         {
@@ -259,7 +245,6 @@ class GoogleAuth {
       console.log("[GoogleAuth] Backend token exchange failed:", error.message);
     }
 
-    // Final fallback: Use Google access token (will need backend adjustment)
     console.log("[GoogleAuth] Using Google access token as fallback");
     this.firebaseIdToken = this.oauth2.accessToken;
 
@@ -273,7 +258,6 @@ class GoogleAuth {
     console.log("[GoogleAuth] Creating user profile in backend...");
 
     try {
-      // Wait a moment for token to be stored
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
       const profileData = {
@@ -305,7 +289,6 @@ class GoogleAuth {
       }
     } catch (error) {
       console.warn("[GoogleAuth] Error creating user profile:", error.message);
-      // Continue anyway - user can still use the extension
     }
   }
 
@@ -349,22 +332,18 @@ class GoogleAuth {
   signOut(callback) {
     console.log("[GoogleAuth] signOut()");
 
-    // Clear OAuth2 tokens
     if (this.oauth2) {
       this.oauth2.clearTokens();
     }
 
-    // Clear Firebase token
     chrome.runtime.sendMessage({
       action: "clearAuth",
     });
 
-    // Reset state
     this.isAuthenticated = false;
     this.userInfo = null;
     this.firebaseIdToken = null;
 
-    // Notify listeners
     this.onAuthStateChanged(false, null);
 
     if (callback) {
@@ -386,12 +365,10 @@ class GoogleAuth {
     }
   }
 
-  // Check if user is currently authenticated
   isSignedIn() {
     return this.isAuthenticated && this.userInfo !== null;
   }
 
-  // Get current user info
   getCurrentUser() {
     return this.userInfo;
   }

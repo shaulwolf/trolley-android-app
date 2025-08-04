@@ -19,6 +19,7 @@ require("./services/firebase");
 const productsRouter = require("./routes/products");
 const syncRouter = require("./routes/sync");
 const scraperRouter = require("./routes/scraper");
+const archiveRouter = require("./routes/archive");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +43,7 @@ app.get("/health", (req, res) => {
 // Mount route modules
 app.use("/api", productsRouter); // This includes auth and user profile routes
 app.use("/api/sync", syncRouter);
+app.use("/api/archive", archiveRouter); // For archive routes
 app.use("/", scraperRouter); // For /extract-product endpoint
 
 // Start server
@@ -67,7 +69,13 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`   GET  /api/products - Get user's products`);
   console.log(`   POST /api/products - Add product to user's trolley`);
   console.log(`   PUT  /api/products/:id - Update user's product`);
+  console.log(`   POST /api/products/:id/archive - Archive user's product`);
   console.log(`   DELETE /api/products/:id - Delete user's product`);
+  console.log(`   GET  /api/archive - Get user's archived products`);
+  console.log(`   POST /api/archive/:id/restore - Restore archived product`);
+  console.log(
+    `   DELETE /api/archive/:id - Delete archived product permanently`
+  );
   console.log(`   GET  /api/sync - Get user's products for sync`);
   console.log(`   POST /api/sync - Upload user's products for sync`);
   console.log(`   POST /api/sync/merge - Merge products into user's trolley`);

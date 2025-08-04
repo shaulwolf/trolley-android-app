@@ -7,13 +7,15 @@ export const useProductExtraction = () => {
   const [isExtracting, setIsExtracting] = useState(false);
 
   const extractProductInfo = async (url) => {
-    console.log("🔍 Extracting product info from:", url);
+    console.log("[useProductExtraction] Extracting product info from:", url);
 
     try {
-      console.log("🕷️ Using trolley-backend universal scraper...");
+      console.log(
+        "[useProductExtraction] Using trolley-backend universal scraper..."
+      );
 
       const productData = await apiService.extractProduct(url);
-      console.log("✅ Extraction successful:", productData);
+      console.log("[useProductExtraction] Extraction successful:", productData);
 
       return {
         title: productData.title || `Product from ${new URL(url).hostname}`,
@@ -25,11 +27,10 @@ export const useProductExtraction = () => {
       };
     } catch (error) {
       console.log(
-        "⚠️ trolley-backend failed, using fallback...",
+        "[useProductExtraction] trolley-backend failed, using fallback...",
         error.message
       );
 
-      // Simple fallback when backend is unavailable
       const urlObj = new URL(url);
       return {
         title: `Product from ${urlObj.hostname}`,
@@ -57,20 +58,16 @@ export const useProductExtraction = () => {
     setIsExtracting(true);
 
     try {
-      // Check for duplicates first
       const exists = products.some((p) => p.url === url.trim());
       if (exists) {
         Alert.alert("Already Added", "This product is already in your trolley");
         return;
       }
 
-      // Extract product info
       const extractedInfo = await extractProductInfo(url.trim());
 
-      // Use custom category or default to general
       const finalCategory = selectedCategory.trim() || "general";
 
-      // Add to custom categories if it's new
       if (finalCategory !== "general") {
         addCustomCategory(finalCategory);
       }
@@ -80,13 +77,11 @@ export const useProductExtraction = () => {
         category: finalCategory,
         dateAdded: new Date().toISOString(),
         ...extractedInfo,
-        // Clean up the site name for display only
         displaySite: cleanStoreName(
           extractedInfo.site || new URL(url.trim()).hostname
         ),
       };
 
-      // Add product using the backend API (which will assign an ID)
       await addProduct(newProduct);
     } catch (error) {
       Alert.alert("Error", `Failed to add product: ${error.message}`);

@@ -14,12 +14,12 @@ export const useImageLoader = (url) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           if (isMounted) {
-            setImageUri(reader.result); 
+            setImageUri(reader.result);
           }
         };
         reader.readAsDataURL(blob);
       } catch (error) {
-        console.warn("Image load error:", error);
+        console.warn("[useImageLoader] Image load error:", error);
       }
     };
 

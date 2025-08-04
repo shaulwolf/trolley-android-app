@@ -8,7 +8,6 @@ export const useFirestore = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState(null);
 
-  // Listen for auth state changes
   useEffect(() => {
     const unsubscribe = auth().onAuthStateChanged((user) => {
       setUser(user);
@@ -24,7 +23,6 @@ export const useFirestore = () => {
     return unsubscribe;
   }, []);
 
-  // Listen for real-time updates when user is authenticated
   useEffect(() => {
     if (!user) return;
 
@@ -42,7 +40,6 @@ export const useFirestore = () => {
             const product = { id: doc.id, ...doc.data() };
             productsData.push(product);
 
-            // Add to custom categories if not "general"
             if (product.category && product.category !== "general") {
               categories.add(product.category);
             }

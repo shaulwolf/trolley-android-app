@@ -1,14 +1,3 @@
-/**
- * OAuth2 library for Chrome Extensions
- * Using chrome.identity.launchWebAuthFlow for proper OAuth2 flow
- *
- * FIXED:
- * - Resolved duplicate function name 'getAccessToken'. The simple getter was renamed to 'retrieveAccessToken'.
- * - Modernized token exchange requests from XMLHttpRequest to the 'fetch' API for consistency and readability.
- * - Improved error handling within fetch calls.
- */
-
-// Firebase config for the extension
 const firebaseConfig = {
   apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
   authDomain: "trolley-app-4885d.firebaseapp.com",
@@ -38,7 +27,6 @@ function signInWithFirebaseIdToken(idToken) {
     .then((res) => {
       console.log("[OAuth2] Firebase signInWithIdp status:", res.status);
       if (!res.ok) {
-        // If the response is not ok, read the body as text to see the error
         return res.text().then((text) => {
           throw new Error(text);
         });
@@ -50,7 +38,6 @@ function signInWithFirebaseIdToken(idToken) {
       if (data && data.idToken) {
         console.log("[OAuth2] Firebase user signed in or created:", data);
       } else {
-        // This block might not be necessary if the !res.ok check above catches all errors
         console.error("[OAuth2] Firebase signInWithIdp error:", data);
       }
     })
@@ -67,7 +54,6 @@ class OAuth2 {
     this.apiScope = config.api_scope;
     this.redirectUri = chrome.identity.getRedirectURL();
 
-    // Initialize properties
     this.accessToken = null;
     this.refreshToken = null;
     this.expiresIn = null;
@@ -93,7 +79,7 @@ class OAuth2 {
     authUrl.searchParams.append("redirect_uri", this.redirectUri);
     authUrl.searchParams.append("scope", this.apiScope);
     authUrl.searchParams.append("access_type", "offline");
-    authUrl.searchParams.append("prompt", "consent"); // Use 'consent' to ensure a refresh token is issued
+    authUrl.searchParams.append("prompt", "consent");
 
     console.log("[OAuth2] Launching WebAuthFlow with URL:", authUrl.href);
 
@@ -140,13 +126,11 @@ class OAuth2 {
         }
 
         console.log("[OAuth2] Got authorization code:", code);
-        // Exchange the code for an access token
         this.getAccessToken(code, callback);
       }
     );
   }
 
-  // This function performs the token exchange
   getAccessToken(code, callback) {
     console.log("[OAuth2] getAccessToken() called with code:", code);
     const tokenUrl = "https://oauth2.googleapis.com/token";
@@ -179,12 +163,11 @@ class OAuth2 {
       .then((response) => {
         console.log("[OAuth2] Token response:", response);
         this.accessToken = response.access_token;
-        this.refreshToken = response.refresh_token; // May be undefined on subsequent authorizations
+        this.refreshToken = response.refresh_token;
         this.expiresIn = response.expires_in;
         this.tokenType = response.token_type;
         this.expiresAt = Date.now() + this.expiresIn * 1000;
 
-        // Store ID token if available
         if (response.id_token) {
           this.idToken = response.id_token;
           signInWithFirebaseIdToken(response.id_token);
@@ -199,12 +182,10 @@ class OAuth2 {
           oauth_expires_at: this.expiresAt,
         };
 
-        // Store the refresh token if we receive a new one
         if (this.refreshToken) {
           tokensToStore.oauth_refresh_token = this.refreshToken;
         }
 
-        // Store the ID token if we receive one
         if (response.id_token) {
           tokensToStore.oauth_id_token = response.id_token;
         }
@@ -220,7 +201,6 @@ class OAuth2 {
       });
   }
 
-  // **FIXED**: Renamed this function to avoid conflict. This is a simple getter.
   retrieveStoredAccessToken() {
     return this.accessToken;
   }
@@ -277,7 +257,6 @@ class OAuth2 {
       })
       .catch((error) => {
         console.error("[OAuth2] Token refresh failed:", error.message);
-        // If refresh fails (e.g., token revoked), clear all tokens to force re-auth
         this.clearTokens();
         callback(null, "Token refresh failed: " + error.message);
       });
@@ -366,5 +345,4 @@ class OAuth2 {
   }
 }
 
-// Make OAuth2 available on the window object for easy access from other scripts
 window.OAuth2 = OAuth2;

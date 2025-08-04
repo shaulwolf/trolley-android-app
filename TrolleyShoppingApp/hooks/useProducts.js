@@ -9,28 +9,27 @@ export const useProducts = () => {
   const [user, setUser] = useState(null);
   const [error, setError] = useState(null);
 
-  console.log("🔄 useProducts hook initialized");
+  console.log("[useProducts] Hook initialized");
 
-  // Listen for auth state changes
   useEffect(() => {
-    console.log("🔄 Setting up auth state listener");
+    console.log("[useProducts] Setting up auth state listener");
 
     const unsubscribe = auth().onAuthStateChanged(async (user) => {
       console.log(
-        "🔄 Auth state changed:",
+        "[useProducts] Auth state changed:",
         user ? `User: ${user.email}` : "No user"
       );
       setUser(user);
-      setError(null); // Clear any previous errors
+      setError(null);
 
       if (user) {
-        console.log("✅ User authenticated, loading products");
-        // Wait a moment for Firebase to be fully ready
+        console.log("[useProducts] User authenticated, loading products");
+
         setTimeout(() => {
           loadProducts();
         }, 500);
       } else {
-        console.log("❌ No user, clearing products");
+        console.log("[useProducts] No user, clearing products");
         setProducts([]);
         setCustomCategories([]);
         setIsLoading(false);
@@ -40,20 +39,19 @@ export const useProducts = () => {
     return unsubscribe;
   }, []);
 
-  // Add a separate effect to handle user changes and reload products
   useEffect(() => {
     if (user) {
       console.log(
-        "👤 User effect triggered, loading products for:",
+        "[useProducts] User effect triggered, loading products for:",
         user.email
       );
       loadProducts();
     }
-  }, [user?.uid]); // Only trigger when user ID changes
+  }, [user?.uid]);
 
   const loadProducts = async () => {
     if (!user) {
-      console.log("❌ No user in loadProducts");
+      console.log("[useProducts] No user in loadProducts");
       setIsLoading(false);
       return;
     }
@@ -61,12 +59,22 @@ export const useProducts = () => {
     try {
       setIsLoading(true);
       setError(null);
-      console.log("📦 Loading products from backend for user:", user.uid);
+      console.log(
+        "[useProducts] Loading products from backend for user:",
+        user.uid
+      );
+
+      const isBackendHealthy = await apiService.checkBackendHealth();
+      if (!isBackendHealthy) {
+        throw new Error("Backend is not available");
+      }
 
       const productsData = await apiService.getProducts();
-      console.log("✅ Received products from backend:", productsData.length);
+      console.log(
+        "[useProducts] Received products from backend:",
+        productsData.length
+      );
 
-      // Extract custom categories from products
       const categories = new Set();
       productsData.forEach((product) => {
         if (product.category && product.category !== "general") {
@@ -76,17 +84,19 @@ export const useProducts = () => {
 
       setProducts(productsData);
       setCustomCategories(Array.from(categories));
-      console.log("✅ Products loaded successfully:", productsData.length);
+      console.log(
+        "[useProducts] Products loaded successfully:",
+        productsData.length
+      );
     } catch (error) {
-      console.error("❌ Error loading products from backend:", error);
+      console.error(
+        "[useProducts] Error loading products from backend:",
+        error
+      );
       setError(error.message);
-
-      // Don't clear products immediately on error - keep existing state
-      // setProducts([]);
-      // setCustomCategories([]);
     } finally {
       setIsLoading(false);
-      console.log("✅ Loading complete, isLoading set to false");
+      console.log("[useProducts] Loading complete, isLoading set to false");
     }
   };
 
@@ -96,17 +106,19 @@ export const useProducts = () => {
     }
 
     try {
-      console.log("➕ Adding product to backend:", newProduct.title);
+      console.log("[useProducts] Adding product to backend:", newProduct.title);
 
       const addedProduct = await apiService.addProduct(newProduct);
 
-      // Update local state
       setProducts((prev) => [addedProduct, ...prev]);
 
-      console.log("✅ Product added to backend with ID:", addedProduct.id);
+      console.log(
+        "[useProducts] Product added to backend with ID:",
+        addedProduct.id
+      );
       return addedProduct.id;
     } catch (error) {
-      console.error("❌ Error adding product to backend:", error);
+      console.error("[useProducts] Error adding product to backend:", error);
       throw error;
     }
   };
@@ -116,17 +128,21 @@ export const useProducts = () => {
       throw new Error("User not authenticated");
     }
 
+    const previousProducts = [...products];
+
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+
     try {
-      console.log("🗑️ Removing product from backend:", productId);
-
-      await apiService.deleteProduct(productId);
-
-      // Update local state
-      setProducts((prev) => prev.filter((p) => p.id !== productId));
-
-      console.log("✅ Product removed from backend");
+      console.log("[useProducts] Archiving product from backend:", productId);
+      await apiService.archiveProduct(productId);
+      console.log("[useProducts] Product archived from backend successfully");
     } catch (error) {
-      console.error("❌ Error removing product from backend:", error);
+      console.error(
+        "[useProducts] Error archiving product from backend:",
+        error
+      );
+
+      setProducts(previousProducts);
       throw error;
     }
   };
@@ -137,18 +153,17 @@ export const useProducts = () => {
     }
 
     try {
-      console.log("🔄 Updating product in backend:", productId);
+      console.log("[useProducts] Updating product in backend:", productId);
 
       const updatedProduct = await apiService.updateProduct(productId, updates);
 
-      // Update local state
       setProducts((prev) =>
         prev.map((p) => (p.id === productId ? { ...p, ...updatedProduct } : p))
       );
 
-      console.log("✅ Product updated in backend");
+      console.log("[useProducts] Product updated in backend");
     } catch (error) {
-      console.error("❌ Error updating product in backend:", error);
+      console.error("[useProducts] Error updating product in backend:", error);
       throw error;
     }
   };
@@ -165,28 +180,31 @@ export const useProducts = () => {
     }
 
     try {
-      console.log("🗑️ Clearing all products from backend");
+      console.log("[useProducts] Clearing all products from backend");
 
-      // Delete each product individually
       await Promise.all(
         products.map((product) => apiService.deleteProduct(product.id))
       );
 
-      // Update local state
       setProducts([]);
       setCustomCategories([]);
 
-      console.log("✅ All products cleared from backend");
+      console.log("[useProducts] All products cleared from backend");
     } catch (error) {
-      console.error("❌ Error clearing products from backend:", error);
+      console.error(
+        "[useProducts] Error clearing products from backend:",
+        error
+      );
       throw error;
     }
   };
 
   const updateProductsFromSync = (newProducts) => {
-    console.log("🔄 Updating products from sync:", newProducts.length);
+    console.log(
+      "[useProducts] Updating products from sync:",
+      newProducts.length
+    );
 
-    // Extract custom categories from synced products
     const categories = new Set();
     newProducts.forEach((product) => {
       if (product.category && product.category !== "general") {
@@ -198,7 +216,7 @@ export const useProducts = () => {
     setCustomCategories(Array.from(categories));
   };
 
-  console.log("🔄 useProducts state:", {
+  console.log("[useProducts] State:", {
     productsCount: products.length,
     isLoading,
     hasUser: !!user,
@@ -210,7 +228,7 @@ export const useProducts = () => {
     customCategories,
     isLoading,
     user,
-    error, // Add error to return
+    error,
     loadProducts,
     addProduct,
     removeProduct,

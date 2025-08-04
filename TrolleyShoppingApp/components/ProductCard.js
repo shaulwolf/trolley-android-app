@@ -1,16 +1,33 @@
-import React from "react";
-import { View, Text, TouchableOpacity, Image, Linking } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  Image,
+  Linking,
+  ActivityIndicator,
+} from "react-native";
 import { renderVariants } from "../utils/helpers";
 import { useImageLoader } from "../hooks/useImageLoader";
 
 const ProductCard = ({ product, onRemove, onCategoryChange }) => {
   const imageUri = useImageLoader(product.image);
+  const [isRemoving, setIsRemoving] = useState(false);
+
+  const handleRemove = async () => {
+    setIsRemoving(true);
+    try {
+      await onRemove(product.id);
+    } catch (error) {
+    } finally {
+      setIsRemoving(false);
+    }
+  };
 
   const calculateDiscountPercentage = (originalPrice, salePrice) => {
     if (!originalPrice || !salePrice) return "";
 
     try {
-      // Extract numeric values from prices
       const originalNum = parseFloat(
         originalPrice.replace(/[^0-9.,]/g, "").replace(",", ".")
       );
@@ -18,17 +35,17 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
         salePrice.replace(/[^0-9.,]/g, "").replace(",", ".")
       );
 
-      // Check for invalid numbers
       if (isNaN(originalNum) || isNaN(saleNum)) {
-        console.log("⚠️ Invalid price numbers:", { originalNum, saleNum });
+        console.log("[ProductCard] Invalid price numbers:", {
+          originalNum,
+          saleNum,
+        });
         return "";
       }
 
-      // Check if there's actually a discount (at least 1% difference)
       const difference = originalNum - saleNum;
       const percentDifference = (difference / originalNum) * 100;
 
-      // Only show discount if it's at least 1% and sale price is lower
       if (difference < 0.01 || percentDifference < 1) {
         return "";
       }
@@ -70,7 +87,6 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
 
   return (
     <View style={styles.productCard}>
-      {/* Product Image */}
       <TouchableOpacity
         style={styles.productImageContainer}
         onPress={() => openProduct(product.url)}
@@ -89,7 +105,6 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
         )}
       </TouchableOpacity>
 
-      {/* Product Info */}
       <View style={styles.productInfo}>
         <TouchableOpacity onPress={() => openProduct(product.url)}>
           <Text style={styles.productTitle} numberOfLines={2}>
@@ -97,7 +112,6 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
           </Text>
         </TouchableOpacity>
 
-        {/* Pricing */}
         <View style={styles.productPricing}>
           {(() => {
             if (product.originalPrice && product.price) {
@@ -105,7 +119,6 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
                 product.originalPrice,
                 product.price
               );
-              // Only show original price if there's a real discount
               return discount ? (
                 <Text style={styles.originalPrice}>
                   {product.originalPrice}
@@ -145,24 +158,20 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
           })()}
         </View>
 
-        {/* Store */}
         <TouchableOpacity onPress={() => openStore(product)}>
           <Text style={styles.productSite}>{product.site}</Text>
         </TouchableOpacity>
 
-        {/* Variants */}
         {renderVariants(product.variants) && (
           <Text style={styles.productVariants}>
             {renderVariants(product.variants)}
           </Text>
         )}
 
-        {/* Date */}
         <Text style={styles.productDate}>
           Added {new Date(product.dateAdded).toLocaleDateString()}
         </Text>
 
-        {/* Footer */}
         <View style={styles.productFooter}>
           <TouchableOpacity
             style={styles.categoryTagContainer}
@@ -173,8 +182,12 @@ const ProductCard = ({ product, onRemove, onCategoryChange }) => {
                 product.category.slice(1)}
             </Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => onRemove(product.id)}>
-            <Text style={styles.removeButton}>Remove</Text>
+          <TouchableOpacity onPress={handleRemove} disabled={isRemoving}>
+            {isRemoving ? (
+              <ActivityIndicator size="small" color="#007AFF" />
+            ) : (
+              <Text style={styles.archiveButton}>Delete</Text>
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -298,8 +311,8 @@ const styles = {
     fontSize: 10,
     fontWeight: "500",
   },
-  removeButton: {
-    color: "#dc3545",
+  archiveButton: {
+    color: "#007AFF",
     fontSize: 12,
     fontWeight: "500",
   },

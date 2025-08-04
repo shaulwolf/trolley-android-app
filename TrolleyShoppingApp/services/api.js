@@ -1,265 +1,105 @@
 import auth from "@react-native-firebase/auth";
+import axios from "axios";
 import { BACKEND_URL } from "../utils/constants";
 
-/**
- * API Service with automatic Firebase authentication
- * Automatically adds Firebase ID token to all requests
- */
-class ApiService {
-  constructor() {
-    this.baseURL = BACKEND_URL;
-  }
+const api = axios.create({
+  baseURL: BACKEND_URL,
+  timeout: 10000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
 
-  /**
-   * Get current user's Firebase ID token
-   */
-  async getAuthToken() {
+api.interceptors.request.use(
+  async (config) => {
     try {
       const currentUser = auth().currentUser;
-      if (!currentUser) {
-        console.log("❌ No current user in getAuthToken");
-        throw new Error("User not authenticated");
+      if (currentUser) {
+        const idToken = await currentUser.getIdToken();
+        config.headers.Authorization = `Bearer ${idToken}`;
       }
-
-      console.log("🔐 Getting ID token for user:", currentUser.email);
-      const idToken = await currentUser.getIdToken();
-      console.log("✅ Got ID token, length:", idToken.length);
-      return idToken;
     } catch (error) {
-      console.error("❌ Error getting auth token:", error);
-
-      // If token is expired or invalid, sign out user
-      if (
-        error.code === "auth/network-request-failed" ||
-        error.code === "auth/user-token-expired" ||
-        error.message.includes("token") ||
-        error.message.includes("expired")
-      ) {
-        console.log("🚪 Token expired, signing out user");
+      console.error("[apiService] Error getting auth token:", error);
+      if (error.code === "auth/user-token-expired") {
         await auth().signOut();
       }
-
-      throw new Error("Failed to get authentication token");
     }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
+);
 
-  /**
-   * Make authenticated API request
-   */
-  async makeRequest(endpoint, options = {}) {
-    try {
-      console.log("🌐 Making authenticated request to:", endpoint);
-      const token = await this.getAuthToken();
+api.interceptors.response.use(
+  (response) => {
+    return response.data;
+  },
+  async (error) => {
+    console.error("[apiService] API Error:", {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      method: error.config?.method,
+      data: error.response?.data,
+      message: error.message,
+    });
 
-      const url = endpoint.startsWith("http")
-        ? endpoint
-        : `${this.baseURL}${endpoint}`;
-
-      console.log("🌐 Full URL:", url);
-
-      const requestOptions = {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          ...options.headers,
-        },
-      };
-
-      console.log("🌐 Request options:", {
-        method: requestOptions.method || "GET",
-        headers: {
-          ...requestOptions.headers,
-          Authorization: `Bearer ${token.substring(0, 20)}...`,
-        },
-      });
-
-      const response = await fetch(url, requestOptions);
-
-      console.log("🌐 Response status:", response.status);
-
-      // Handle authentication errors
-      if (response.status === 401 || response.status === 403) {
-        console.log("🚪 Authentication failed, signing out user");
-        await auth().signOut();
-        throw new Error("Authentication failed - please login again");
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("❌ Request failed:", response.status, errorText);
-        throw new Error(`Request failed: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log(
-        "✅ Request successful, data length:",
-        Array.isArray(data) ? data.length : "not array"
-      );
-      return data;
-    } catch (error) {
-      console.error("❌ API request error:", error);
-
-      // Handle network or authentication errors
-      if (
-        error.message.includes("Authentication failed") ||
-        error.message.includes("Failed to get authentication token")
-      ) {
-        // User will be redirected to login automatically by auth state change
-      }
-
-      throw error;
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.log("[apiService] Authentication failed, signing out user");
+      await auth().signOut();
     }
+    throw error;
   }
+);
 
-  /**
-   * Make public API request (no authentication required)
-   */
-  async makePublicRequest(endpoint, options = {}) {
-    try {
-      const url = endpoint.startsWith("http")
-        ? endpoint
-        : `${this.baseURL}${endpoint}`;
+export const apiService = {
+  getProducts: () => api.get("/api/products"),
 
-      const requestOptions = {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...options.headers,
-        },
-      };
+  addProduct: (productData) => api.post("/api/products", productData),
 
-      console.log(`🌐 Public API Request: ${options.method || "GET"} ${url}`);
+  updateProduct: (productId, updates) =>
+    api.put(`/api/products/${productId}`, updates),
 
-      const response = await fetch(url, requestOptions);
+  deleteProduct: (productId) => api.delete(`/api/products/${productId}`),
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(
-          errorData.message || `Request failed with status ${response.status}`
-        );
-      }
+  archiveProduct: (productId) => api.post(`/api/products/${productId}/archive`),
 
-      const data = await response.json();
-      console.log(
-        `✅ Public API Response: ${options.method || "GET"} ${url} - Success`
-      );
+  clearAllProducts: () => api.delete("/api/products"),
 
-      return data;
-    } catch (error) {
-      console.error(
-        `❌ Public API Error: ${options.method || "GET"} ${endpoint}`,
-        error
-      );
-      throw error;
-    }
-  }
-
-  // ===== PRODUCT ENDPOINTS =====
-
-  /**
-   * Get all products for current user
-   */
-  async getProducts() {
-    return this.makeRequest("/api/products");
-  }
-
-  /**
-   * Add a product to current user's trolley
-   */
-  async addProduct(productData) {
-    return this.makeRequest("/api/products", {
-      method: "POST",
-      body: JSON.stringify(productData),
-    });
-  }
-
-  /**
-   * Update a product in current user's trolley
-   */
-  async updateProduct(productId, updates) {
-    return this.makeRequest(`/api/products/${productId}`, {
-      method: "PUT",
-      body: JSON.stringify(updates),
-    });
-  }
-
-  /**
-   * Delete a product from current user's trolley
-   */
-  async deleteProduct(productId) {
-    return this.makeRequest(`/api/products/${productId}`, {
-      method: "DELETE",
-    });
-  }
-
-  /**
-   * Clear all products from current user's trolley
-   */
-  async clearAllProducts() {
-    return this.makeRequest("/api/products", {
-      method: "DELETE",
-    });
-  }
-
-  // ===== SYNC ENDPOINTS =====
-
-  /**
-   * Get products for sync (with optional timestamp filter)
-   */
-  async getProductsForSync(since = null) {
+  getProductsForSync: (since = null) => {
     const params = since ? `?since=${encodeURIComponent(since)}` : "";
-    return this.makeRequest(`/api/sync${params}`);
-  }
+    return api.get(`/api/sync${params}`);
+  },
 
-  /**
-   * Upload products for sync (complete replacement)
-   */
-  async syncProducts(products, deviceId = "react-native-app") {
-    return this.makeRequest("/api/sync", {
-      method: "POST",
-      body: JSON.stringify({ products, deviceId }),
-    });
-  }
+  syncProducts: (products, deviceId = "react-native-app") =>
+    api.post("/api/sync", { products, deviceId }),
 
-  /**
-   * Merge products (add only new ones)
-   */
-  async mergeProducts(products, deviceId = "react-native-app") {
-    return this.makeRequest("/api/sync/merge", {
-      method: "POST",
-      body: JSON.stringify({ products, deviceId }),
-    });
-  }
+  mergeProducts: (products, deviceId = "react-native-app") =>
+    api.post("/api/sync/merge", { products, deviceId }),
 
-  /**
-   * Get sync status
-   */
-  async getSyncStatus() {
-    return this.makeRequest("/api/sync/status");
-  }
+  getSyncStatus: () => api.get("/api/sync/status"),
 
-  // ===== PUBLIC ENDPOINTS =====
+  extractProduct: (url) => api.post("/extract-product", { url }),
 
-  /**
-   * Extract product information from URL (no authentication required)
-   */
-  async extractProduct(url) {
-    return this.makePublicRequest("/extract-product", {
-      method: "POST",
-      body: JSON.stringify({ url }),
-    });
-  }
+  healthCheck: () => api.get("/health"),
 
-  /**
-   * Health check (no authentication required)
-   */
-  async healthCheck() {
-    return this.makePublicRequest("/health");
-  }
-}
+  checkBackendHealth: async () => {
+    try {
+      const response = await api.get("/health");
+      console.log("[apiService] Backend health check successful:", response);
+      return true;
+    } catch (error) {
+      console.error("[apiService] Backend health check failed:", error);
+      return false;
+    }
+  },
 
-// Create singleton instance
-const apiService = new ApiService();
+  getArchivedProducts: () => api.get("/api/archive"),
+
+  restoreProduct: (productId) => api.post(`/api/archive/${productId}/restore`),
+
+  deleteArchivedProduct: (productId) => api.delete(`/api/archive/${productId}`),
+};
 
 export default apiService;

@@ -1,8 +1,6 @@
-// Simple Trolley Popup
 let isSyncing = false;
 let isLoadingCart = false;
 
-// Auth elements
 const authSection = document.getElementById("authSection");
 const mainApp = document.getElementById("mainApp");
 const googleSignInBtn = document.getElementById("googleSignInBtn");
@@ -12,7 +10,6 @@ const userAvatar = document.getElementById("userAvatar");
 const userName = document.getElementById("userName");
 const userEmail = document.getElementById("userEmail");
 
-// Email auth elements
 const signInTab = document.getElementById("signInTab");
 const signUpTab = document.getElementById("signUpTab");
 const emailInput = document.getElementById("emailInput");
@@ -20,24 +17,21 @@ const passwordInput = document.getElementById("passwordInput");
 const emailAuthBtn = document.getElementById("emailAuthBtn");
 const emailAuthBtnText = document.getElementById("emailAuthBtnText");
 
-// Auth state
 let currentUser = null;
 let googleAuth = null;
-let isSignInMode = true; // true = sign in, false = sign up
+let isSignInMode = true;
 
-// DOM elements
 const cartContainer = document.getElementById("cart-container");
 const syncButton = document.getElementById("syncButton");
 const syncStatus = document.getElementById("syncStatus");
 const productCount = document.getElementById("product-count");
 const clearAllButton = document.getElementById("clear-all-button");
 
-// Initialize popup
 document.addEventListener("DOMContentLoaded", function () {
-  // Initialize Google Auth
+  checkAuthenticationStatus();
+
   initializeGoogleAuth();
 
-  // Initialize Email Auth
   initializeEmailAuth();
 
   let customCategories = [];
@@ -48,23 +42,75 @@ document.addEventListener("DOMContentLoaded", function () {
   let currentSort = "dateAdded-desc";
   let searchTerm = "";
 
-  // Auth functions
+  function checkAuthenticationStatus() {
+    console.log("🔐 Checking authentication status...");
+
+    chrome.runtime.sendMessage({ action: "getAuthStatus" }, (response) => {
+      if (response && response.isAuthenticated) {
+        console.log("✅ User is already authenticated, loading user data...");
+
+        chrome.storage.local.get(["firebase_user_info"], (result) => {
+          if (result.firebase_user_info) {
+            currentUser = result.firebase_user_info;
+            showMainApp();
+            updateUserInfo(currentUser);
+
+            setTimeout(() => {
+              console.log("📦 Loading cart after authentication check...");
+              if (typeof window.loadCart === "function") {
+                window.loadCart();
+              }
+            }, 500);
+          } else {
+            console.log(
+              "🔄 Token exists but no user info, attempting to load cart..."
+            );
+
+            setTimeout(() => {
+              if (typeof window.loadCart === "function") {
+                window.loadCart();
+              }
+            }, 500);
+          }
+        });
+      } else {
+        console.log("❌ User not authenticated, showing auth section");
+        showAuthSection();
+      }
+    });
+  }
+
+  function handleAuthError(error) {
+    console.log("🚨 Authentication error detected:", error);
+
+    if (
+      error &&
+      (error.includes("Authentication expired") ||
+        error.includes("not authenticated") ||
+        error.includes("401"))
+    ) {
+      console.log("🚪 Auto-signing out due to authentication error...");
+      signOutUser();
+      return true;
+    }
+    return false;
+  }
+
   function initializeGoogleAuth() {
-    // Initialize Google Auth
     googleAuth = new GoogleAuth();
     googleAuth.setAuthStateChangeCallback((isSignedIn, userInfo) => {
       if (isSignedIn && userInfo) {
-        // User is signed in
         currentUser = userInfo;
+
+        chrome.storage.local.set({ firebase_user_info: userInfo });
+
         showMainApp();
         updateUserInfo(userInfo);
         console.log("User signed in:", userInfo.email);
 
-        // Load user's products after successful authentication
         console.log("🔄 Starting product load after authentication...");
         console.log("👤 Current user set to:", userInfo.email);
 
-        // Try immediate load first
         setTimeout(() => {
           console.log("🔄 First attempt to load cart after auth...");
           console.log(
@@ -80,7 +126,6 @@ document.addEventListener("DOMContentLoaded", function () {
           }
         }, 500);
 
-        // Backup attempt with longer delay
         setTimeout(() => {
           console.log("🔄 Backup attempt to load cart...");
           if (allProducts.length === 0) {
@@ -93,17 +138,14 @@ document.addEventListener("DOMContentLoaded", function () {
           }
         }, 2000);
       } else {
-        // User is signed out
         currentUser = null;
         showAuthSection();
         console.log("User signed out");
       }
     });
 
-    // Initialize auth
     googleAuth.initialize();
 
-    // Add event listeners
     googleSignInBtn.addEventListener("click", signInWithGoogle);
     signOutBtn.addEventListener("click", signOutUser);
   }
@@ -114,21 +156,19 @@ document.addEventListener("DOMContentLoaded", function () {
 
     console.log("🔐 Requesting OAuth from background script...");
 
-    // Викликати OAuth в background script
     chrome.runtime.sendMessage({ action: "performOAuth" }, (response) => {
       if (response && response.success) {
         console.log("✅ Background OAuth successful:", response.userInfo.email);
 
-        // Оновити стан користувача
         currentUser = response.userInfo;
 
-        // Показати головний інтерфейс
+        chrome.storage.local.set({ firebase_user_info: response.userInfo });
+
         showMainApp();
         updateUserInfo(response.userInfo);
 
         console.log("🔄 Starting product load after successful OAuth...");
 
-        // Завантажити продукти після успішної авторизації
         setTimeout(() => {
           console.log("📦 Loading products after background OAuth...");
           if (typeof window.loadCart === "function") {
@@ -140,14 +180,12 @@ document.addEventListener("DOMContentLoaded", function () {
       } else {
         console.error("❌ Background OAuth failed:", response?.error);
 
-        // Відновити кнопку входу
         googleSignInBtn.disabled = false;
         googleSignInBtn.innerHTML = `
           <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google" class="google-icon">
           Sign in with Google
         `;
 
-        // Показати помилку користувачу
         alert(`Sign in failed: ${response?.error || "Unknown error"}`);
       }
     });
@@ -156,37 +194,32 @@ document.addEventListener("DOMContentLoaded", function () {
   function signOutUser() {
     console.log("🚪 Signing out user...");
 
-    // Очистити локальний стан
     currentUser = null;
     allProducts = [];
     customCategories = [];
 
-    // Очистити Chrome storage
-    chrome.storage.local.remove(["firebase_id_token", "cart"], () => {
-      console.log("✅ Chrome storage cleared");
-    });
+    chrome.storage.local.remove(
+      ["firebase_id_token", "firebase_user_info", "cart"],
+      () => {
+        console.log("✅ Chrome storage cleared");
+      }
+    );
 
-    // Очистити Google OAuth токени
     chrome.identity.clearAllCachedAuthTokens(() => {
       console.log("✅ OAuth tokens cleared");
     });
 
-    // Показати екран авторизації
     showAuthSection();
 
     console.log("✅ Sign out completed");
   }
 
-  // Email Authentication Functions
   function initializeEmailAuth() {
-    // Tab switching
     signInTab.addEventListener("click", () => switchAuthMode(true));
     signUpTab.addEventListener("click", () => switchAuthMode(false));
 
-    // Form submission
     emailAuthBtn.addEventListener("click", handleEmailAuth);
 
-    // Enter key submission
     emailInput.addEventListener("keypress", (e) => {
       if (e.key === "Enter") handleEmailAuth();
     });
@@ -198,14 +231,11 @@ document.addEventListener("DOMContentLoaded", function () {
   function switchAuthMode(signIn) {
     isSignInMode = signIn;
 
-    // Update tabs
     signInTab.classList.toggle("active", signIn);
     signUpTab.classList.toggle("active", !signIn);
 
-    // Update button text
     emailAuthBtnText.textContent = signIn ? "Sign In" : "Sign Up";
 
-    // Clear inputs
     emailInput.value = "";
     passwordInput.value = "";
   }
@@ -224,7 +254,6 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Disable button and show loading
     emailAuthBtn.disabled = true;
     emailAuthBtnText.textContent = "Please wait...";
 
@@ -248,14 +277,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (response && response.success) {
           console.log("✅ Email sign in successful:", response.userInfo.email);
 
-          // Update user state
           currentUser = response.userInfo;
 
-          // Show main app
+          chrome.storage.local.set({ firebase_user_info: response.userInfo });
+
           showMainApp();
           updateUserInfo(response.userInfo);
 
-          // Load products
           setTimeout(() => {
             console.log("📦 Loading products after email sign in...");
             if (typeof window.loadCart === "function") {
@@ -267,7 +295,6 @@ document.addEventListener("DOMContentLoaded", function () {
           alert(`Sign in failed: ${getErrorMessage(response?.error)}`);
         }
 
-        // Re-enable button
         emailAuthBtn.disabled = false;
         emailAuthBtnText.textContent = "Sign In";
       }
@@ -291,14 +318,12 @@ document.addEventListener("DOMContentLoaded", function () {
             "Registration successful! A verification email has been sent to your email address. Please check your inbox."
           );
 
-          // Switch to sign in mode
           switchAuthMode(true);
         } else {
           console.error("❌ Email sign up failed:", response?.error);
           alert(`Registration failed: ${getErrorMessage(response?.error)}`);
         }
 
-        // Re-enable button
         emailAuthBtn.disabled = false;
         emailAuthBtnText.textContent = "Sign Up";
       }
@@ -331,7 +356,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function showAuthSection() {
     authSection.style.display = "flex";
     mainApp.style.display = "none";
-    // Clear cart data when user signs out
+
     allProducts = [];
     customCategories = [];
     customStores = [];
@@ -340,7 +365,6 @@ document.addEventListener("DOMContentLoaded", function () {
     currentSort = "dateAdded-desc";
     searchTerm = "";
 
-    // Clear the display
     const cartContent = document.getElementById("cartContent");
     cartContent.innerHTML = `
       <div class="empty-state">
@@ -349,7 +373,6 @@ document.addEventListener("DOMContentLoaded", function () {
       </div>
     `;
 
-    // Reset UI elements
     document.getElementById("totalItems").textContent = "0";
     document.getElementById("checkoutBtn").textContent = "Open All Items";
     document.getElementById("checkoutBtn").disabled = true;
@@ -360,7 +383,6 @@ document.addEventListener("DOMContentLoaded", function () {
     authSection.style.display = "none";
     mainApp.style.display = "flex";
 
-    // Initialize cart loading - this will be called by auth callback
     console.log("📱 Main app shown, cart will be loaded by auth callback");
   }
 
@@ -371,7 +393,6 @@ document.addEventListener("DOMContentLoaded", function () {
     userEmail.textContent = userInfo.email;
   }
 
-  // Define all functions first
   function updateSubtotal() {
     const visibleItems = document.querySelectorAll(
       '.product-item:not([style*="display: none"])'
@@ -393,12 +414,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Helper function to calculate discount percentage
   function calculateDiscountPercentage(originalPrice, salePrice) {
     if (!originalPrice || !salePrice) return "";
 
     try {
-      // Extract numeric values from prices
       const originalNum = parseFloat(
         originalPrice.replace(/[^0-9.,]/g, "").replace(",", ".")
       );
@@ -406,13 +425,11 @@ document.addEventListener("DOMContentLoaded", function () {
         salePrice.replace(/[^0-9.,]/g, "").replace(",", ".")
       );
 
-      // Check for invalid numbers
       if (isNaN(originalNum) || isNaN(saleNum)) {
         console.log("⚠️ Invalid price numbers:", { originalNum, saleNum });
         return "";
       }
 
-      // Check if there's actually a discount (at least 1% difference)
       const difference = originalNum - saleNum;
       const percentDifference = (difference / originalNum) * 100;
 
@@ -423,7 +440,6 @@ document.addEventListener("DOMContentLoaded", function () {
         percentDifference: percentDifference.toFixed(1),
       });
 
-      // Only show discount if it's at least 1% and sale price is lower
       if (difference < 0.01 || percentDifference < 1) {
         console.log("❌ No significant discount found");
         return "";
@@ -438,12 +454,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Store name mapping function
   function getStoreName(hostname) {
-    // Remove www. and common prefixes
     const cleanHostname = hostname.replace(/^(www\.|m\.|mobile\.)/, "");
 
-    // Store name mappings
     const storeMap = {
       "toddsnyder.com": "Todd Snyder",
       "bonobos.com": "Bonobos",
@@ -541,29 +554,24 @@ document.addEventListener("DOMContentLoaded", function () {
       "stradivarius.com": "Stradivarius",
     };
 
-    // Check if we have a mapping
     if (storeMap[cleanHostname]) {
       return storeMap[cleanHostname];
     }
 
-    // If no mapping, try to create a nice name from the domain
     const domainParts = cleanHostname.split(".");
     if (domainParts.length >= 2) {
       const storeName = domainParts[0];
 
-      // Handle special cases
       if (storeName.length <= 3) {
-        return storeName.toUpperCase(); // For short names like H&M
+        return storeName.toUpperCase();
       }
 
-      // Capitalize first letter and handle camelCase
       return storeName
-        .replace(/([A-Z])/g, " $1") // Add space before capital letters
-        .replace(/^./, (str) => str.toUpperCase()) // Capitalize first letter
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (str) => str.toUpperCase())
         .trim();
     }
 
-    // Fallback to original hostname if all else fails
     return cleanHostname;
   }
 
@@ -571,7 +579,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const dropdown = document.getElementById("mainCategoryDropdown");
     const input = dropdown.querySelector(".main-new-category-input");
 
-    // Remove old options
     const options = dropdown.querySelectorAll(".main-category-option");
     options.forEach((option) => option.remove());
 
@@ -579,7 +586,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const filteredProducts = getFilteredProducts();
 
     if (currentMode === "categories") {
-      // Calculate category counts
       categories = { all: filteredProducts.length };
       filteredProducts.forEach((item) => {
         const category = item.category || "all";
@@ -589,14 +595,12 @@ document.addEventListener("DOMContentLoaded", function () {
         categories[category]++;
       });
 
-      // Add "All Items" category
       const allOption = document.createElement("button");
       allOption.className = "main-category-option";
       allOption.setAttribute("data-value", "all");
       allOption.textContent = `All Items (${categories.all})`;
       dropdown.insertBefore(allOption, input);
 
-      // Add custom categories
       customCategories.forEach((cat) => {
         const count = categories[cat.value] || 0;
         const option = document.createElement("button");
@@ -608,7 +612,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
       input.placeholder = "Add new category";
     } else {
-      // Calculate store counts - group by actual store hostnames but display nice names
       const storeHostnames = {};
       filteredProducts.forEach((item) => {
         const hostname = item.site;
@@ -620,14 +623,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
       categories = { all: filteredProducts.length };
 
-      // Add "All Stores" option
       const allOption = document.createElement("button");
       allOption.className = "main-category-option";
       allOption.setAttribute("data-value", "all");
       allOption.textContent = `All Stores (${categories.all})`;
       dropdown.insertBefore(allOption, input);
 
-      // Add stores with nice names, sorted alphabetically
       const sortedStores = Object.keys(storeHostnames).sort((a, b) => {
         const nameA = getStoreName(a);
         const nameB = getStoreName(b);
@@ -639,7 +640,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const displayName = getStoreName(hostname);
         const option = document.createElement("button");
         option.className = "main-category-option";
-        option.setAttribute("data-value", hostname); // Keep hostname as value for filtering
+        option.setAttribute("data-value", hostname);
         option.textContent = `${displayName} (${count})`;
         dropdown.insertBefore(option, input);
       });
@@ -649,17 +650,14 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function updateAllDropdowns() {
-    // Update all inline dropdowns to include custom categories
     document
       .querySelectorAll(".inline-category-dropdown")
       .forEach((dropdown) => {
         const input = dropdown.querySelector(".new-category-input");
 
-        // Remove old options
         const options = dropdown.querySelectorAll(".category-option");
         options.forEach((option) => option.remove());
 
-        // Add custom categories
         customCategories.forEach((cat) => {
           const option = document.createElement("button");
           option.className = "category-option";
@@ -701,7 +699,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
     } else {
-      // Store mode - use nice store names in display
       const storeHostnames = {};
 
       filteredProducts.forEach((item) => {
@@ -732,7 +729,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function parsePrice(priceString) {
     if (!priceString || priceString === "N/A") return 0;
-    // Remove currency symbols and commas, then parse
+
     const numericValue = priceString.replace(/[$,]/g, "");
     return parseFloat(numericValue) || 0;
   }
@@ -778,7 +775,6 @@ document.addEventListener("DOMContentLoaded", function () {
   function getFilteredProducts() {
     let filtered = allProducts;
 
-    // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter((product) => {
         const searchableText = [
@@ -795,7 +791,6 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     }
 
-    // Apply category/store filter
     if (currentFilter !== "all") {
       if (currentMode === "categories") {
         filtered = filtered.filter((product) => {
@@ -814,7 +809,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const searchInfo = document.getElementById("searchResultsInfo");
     const searchText = document.getElementById("searchResultsText");
 
-    // Check if elements exist
     if (!searchInfo || !searchText) {
       console.log("⚠️ Search info elements not found, skipping update");
       return;
@@ -850,16 +844,12 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Get filtered products
     let filteredProducts = getFilteredProducts();
 
-    // Sort products
     filteredProducts = sortProducts([...filteredProducts], currentSort);
 
-    // Update search results info
     updateSearchResultsInfo();
 
-    // Clear content except search results info
     const existingSearchInfo = content.querySelector(".search-results-info");
     content.innerHTML = "";
     if (existingSearchInfo) {
@@ -899,7 +889,6 @@ document.addEventListener("DOMContentLoaded", function () {
           : customCategories.find((cat) => cat.value === product.category)
               ?.name || product.category;
 
-      // Build variants display
       let variantsHtml = "";
       if (product.variants && Object.keys(product.variants).length > 0) {
         const variantPairs = [];
@@ -917,7 +906,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
       }
 
-      // Highlight search terms in product title and store name
       const highlightedTitle = highlightSearchTerm(
         product.title || "Untitled Product",
         searchTerm
@@ -944,7 +932,7 @@ document.addEventListener("DOMContentLoaded", function () {
                               product.originalPrice,
                               product.price
                             );
-                            // Only show original price if there's a real discount
+
                             return discount
                               ? `<span class="original-price">${product.originalPrice}</span>`
                               : "";
@@ -1001,15 +989,23 @@ document.addEventListener("DOMContentLoaded", function () {
       content.appendChild(productDiv);
     });
 
-    // Add event listeners for new elements
     addProductEventListeners();
     updateSubtotal();
+
+    // Show/hide Remove All button based on product count
+    const removeAllBtn = document.getElementById("removeAllBtn");
+    if (removeAllBtn) {
+      if (allProducts.length > 0) {
+        removeAllBtn.style.display = "block";
+      } else {
+        removeAllBtn.style.display = "none";
+      }
+    }
 
     console.log(`✅ Rendered ${filteredProducts.length} products`);
   }
 
   function addProductEventListeners() {
-    // Handle product tag clicks
     document.querySelectorAll(".product-tag").forEach((tag) => {
       tag.addEventListener("click", function (e) {
         e.stopPropagation();
@@ -1017,19 +1013,15 @@ document.addEventListener("DOMContentLoaded", function () {
         const dropdown = this.nextElementSibling;
         const isCurrentlyOpen = dropdown.classList.contains("show");
 
-        // Close any other open dropdowns first
         document
           .querySelectorAll(".inline-category-dropdown")
           .forEach((otherDropdown) => {
             otherDropdown.classList.remove("show");
           });
 
-        // If this dropdown was already open, keep it closed (toggle behavior)
-        // If it was closed, open it
         if (!isCurrentlyOpen) {
           dropdown.classList.add("show");
 
-          // Update selected state
           const currentCategory = this.getAttribute("data-category");
           dropdown.querySelectorAll(".category-option").forEach((option) => {
             option.classList.remove("selected");
@@ -1041,13 +1033,11 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     });
 
-    // Handle remove buttons
     document.querySelectorAll(".remove-btn").forEach((btn) => {
       btn.addEventListener("click", function () {
         const index = parseInt(this.getAttribute("data-index"));
         const product = allProducts[index];
 
-        // Delete from server and reload
         chrome.runtime.sendMessage(
           {
             action: "deleteProduct",
@@ -1056,16 +1046,19 @@ document.addEventListener("DOMContentLoaded", function () {
           (response) => {
             if (response.success) {
               console.log("✅ Product deleted:", response.message);
-              window.loadCart(); // Reload cart after deletion
+              window.loadCart();
             } else {
               console.error("❌ Failed to delete product:", response.error);
+
+              if (response?.needsAuth || handleAuthError(response?.error)) {
+                console.log("❌ Authentication error during delete");
+              }
             }
           }
         );
       });
     });
 
-    // Handle product name and image clicks
     document
       .querySelectorAll(".product-name, .product-image")
       .forEach((element) => {
@@ -1074,32 +1067,28 @@ document.addEventListener("DOMContentLoaded", function () {
           const index = parseInt(productItem.getAttribute("data-index"));
           const product = allProducts[index];
 
-          // Open product page in new tab
           chrome.tabs.create({ url: product.url });
         });
       });
 
-    // Handle store name clicks
     document.querySelectorAll(".product-store").forEach((store) => {
       store.addEventListener("click", function () {
         const productItem = this.closest(".product-item");
         const index = parseInt(productItem.getAttribute("data-index"));
         const product = allProducts[index];
-        const hostname = product.site; // Use the original hostname for the URL
+        const hostname = product.site;
         const storeUrl = `https://${hostname}`;
         chrome.tabs.create({ url: storeUrl });
       });
     });
   }
 
-  // Global loadCart function
   window.loadCart = function () {
     if (isLoadingCart) {
       console.log("📦 Cart loading already in progress, skipping...");
       return;
     }
 
-    // Check if user is authenticated first
     if (!currentUser) {
       console.log("User not authenticated, skipping cart load");
       return;
@@ -1108,7 +1097,6 @@ document.addEventListener("DOMContentLoaded", function () {
     isLoadingCart = true;
     console.log("📦 Loading cart data from server...");
 
-    // Get all products from server
     chrome.runtime.sendMessage({ action: "getAllProducts" }, (response) => {
       isLoadingCart = false;
 
@@ -1116,7 +1104,6 @@ document.addEventListener("DOMContentLoaded", function () {
         console.log("✅ Loaded products from server:", response.message);
         console.log("📊 Response product count:", response.productCount);
 
-        // Load from storage (background script already saved it)
         chrome.storage.local.get({ cart: {} }, ({ cart }) => {
           allProducts = [];
           customCategories = [];
@@ -1129,7 +1116,6 @@ document.addEventListener("DOMContentLoaded", function () {
           console.log("📦 Raw cart data:", cart);
           console.log("📦 Response product count was:", response.productCount);
 
-          // Flatten all products from all folders and assign categories
           Object.entries(cart).forEach(([folderName, products]) => {
             console.log(
               `📁 Folder "${folderName}":`,
@@ -1138,17 +1124,14 @@ document.addEventListener("DOMContentLoaded", function () {
             );
 
             if (folderName === "All Items") {
-              // Products in "All Items" don't have a specific category
               products.forEach((product) => {
                 allProducts.push({ ...product, category: "all" });
               });
             } else {
-              // Products in named folders get that category
               const categoryValue = folderName
                 .toLowerCase()
                 .replace(/\s+/g, "-");
 
-              // Add to custom categories if not already there
               if (
                 !customCategories.find((cat) => cat.value === categoryValue)
               ) {
@@ -1168,7 +1151,6 @@ document.addEventListener("DOMContentLoaded", function () {
           console.log("📂 Custom categories:", customCategories.length);
           console.log("📦 allProducts sample:", allProducts.slice(0, 3));
 
-          // Force UI update
           setTimeout(() => {
             updateMainDropdown();
             renderProducts();
@@ -1179,10 +1161,8 @@ document.addEventListener("DOMContentLoaded", function () {
       } else {
         console.error("❌ Failed to load products:", response?.error);
 
-        // Handle authentication errors
-        if (response?.needsAuth) {
+        if (response?.needsAuth || handleAuthError(response?.error)) {
           console.log("❌ Authentication required, signing out user");
-          signOutUser();
         }
       }
     });
@@ -1192,19 +1172,16 @@ document.addEventListener("DOMContentLoaded", function () {
     currentMode = mode;
     currentFilter = "all";
 
-    // Update tab appearance
     document.querySelectorAll(".tab-button").forEach((tab) => {
       tab.classList.remove("active");
     });
     document.getElementById(mode + "Tab").classList.add("active");
 
-    // Update filter dropdown and display
     updateMainDropdown();
     updateCategoryCounts();
     renderProducts();
   }
 
-  // Tab switching event handlers
   document.getElementById("categoriesTab").addEventListener("click", () => {
     switchMode("categories");
   });
@@ -1213,13 +1190,11 @@ document.addEventListener("DOMContentLoaded", function () {
     switchMode("stores");
   });
 
-  // Search functionality
   document
     .getElementById("searchInput")
     .addEventListener("input", function (e) {
       searchTerm = e.target.value.trim();
 
-      // Show/hide clear button
       const clearBtn = document.getElementById("searchClearBtn");
       if (searchTerm) {
         clearBtn.style.display = "flex";
@@ -1227,12 +1202,10 @@ document.addEventListener("DOMContentLoaded", function () {
         clearBtn.style.display = "none";
       }
 
-      // Re-render products with search filter
       renderProducts();
       updateCategoryCounts();
     });
 
-  // Clear search button
   document
     .getElementById("searchClearBtn")
     .addEventListener("click", function () {
@@ -1244,7 +1217,6 @@ document.addEventListener("DOMContentLoaded", function () {
       document.getElementById("searchInput").focus();
     });
 
-  // Clear search from results info
   document
     .getElementById("clearSearchBtn")
     .addEventListener("click", function () {
@@ -1255,7 +1227,6 @@ document.addEventListener("DOMContentLoaded", function () {
       updateCategoryCounts();
     });
 
-  // Sort functionality
   document
     .getElementById("sortSelect")
     .addEventListener("change", function (e) {
@@ -1263,13 +1234,11 @@ document.addEventListener("DOMContentLoaded", function () {
       renderProducts();
     });
 
-  // Handle main category filter display click
   document
     .getElementById("categoryFilterDisplay")
     .addEventListener("click", function (e) {
       e.stopPropagation();
 
-      // Close any open inline dropdowns first
       document
         .querySelectorAll(".inline-category-dropdown")
         .forEach((dropdown) => {
@@ -1281,7 +1250,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
       dropdown.classList.toggle("show");
 
-      // Update arrow rotation
       const arrow = this.querySelector(".dropdown-arrow");
       if (isOpen) {
         arrow.style.transform = "rotate(0deg)";
@@ -1289,7 +1257,6 @@ document.addEventListener("DOMContentLoaded", function () {
         arrow.style.transform = "rotate(180deg)";
       }
 
-      // Update selected state
       dropdown.querySelectorAll(".main-category-option").forEach((option) => {
         option.classList.remove("selected");
         if (option.getAttribute("data-value") === currentFilter) {
@@ -1298,7 +1265,6 @@ document.addEventListener("DOMContentLoaded", function () {
       });
     });
 
-  // Handle main category option clicks
   document.addEventListener("click", function (e) {
     if (e.target.classList.contains("main-category-option")) {
       e.stopPropagation();
@@ -1306,22 +1272,18 @@ document.addEventListener("DOMContentLoaded", function () {
       const selectedValue = e.target.getAttribute("data-value");
       currentFilter = selectedValue;
 
-      // Update display
       document
         .getElementById("categoryFilterDisplay")
         .querySelector("span").textContent = e.target.textContent;
 
-      // Re-render products with filter
       renderProducts();
       updateCategoryCounts();
 
-      // Close dropdown
       document.getElementById("mainCategoryDropdown").classList.remove("show");
       document.querySelector(".dropdown-arrow").style.transform =
         "rotate(0deg)";
     }
 
-    // Handle category option clicks in product dropdowns
     if (e.target.classList.contains("category-option")) {
       e.stopPropagation();
 
@@ -1332,12 +1294,9 @@ document.addEventListener("DOMContentLoaded", function () {
       const index = parseInt(productItem.getAttribute("data-index"));
       const product = allProducts[index];
 
-      // Update the product category
       product.category = newCategory;
 
-      // Update in storage
       chrome.storage.local.get({ cart: {} }, (data) => {
-        // Remove from all folders first
         Object.keys(data.cart).forEach((folder) => {
           data.cart[folder] = data.cart[folder].filter(
             (item) => item.url !== product.url
@@ -1347,7 +1306,6 @@ document.addEventListener("DOMContentLoaded", function () {
           }
         });
 
-        // Add to the new category folder
         const folderName =
           customCategories.find((cat) => cat.value === newCategory)?.name ||
           "All Items";
@@ -1357,17 +1315,14 @@ document.addEventListener("DOMContentLoaded", function () {
         data.cart[folderName].push(product);
 
         chrome.storage.local.set({ cart: data.cart }, () => {
-          // Close the dropdown
           dropdown.classList.remove("show");
 
-          // Reload cart to update display
           window.loadCart();
         });
       });
     }
   });
 
-  // Handle main new category input
   document.addEventListener("click", function (e) {
     if (
       e.target.classList.contains("main-new-category-input") ||
@@ -1391,7 +1346,6 @@ document.addEventListener("DOMContentLoaded", function () {
           .toLowerCase()
           .replace(/\s+/g, "-");
 
-        // Add to custom categories if not already exists
         if (!customCategories.find((cat) => cat.value === newCategoryValue)) {
           customCategories.push({
             value: newCategoryValue,
@@ -1399,19 +1353,15 @@ document.addEventListener("DOMContentLoaded", function () {
           });
         }
 
-        // If this is from a product dropdown, move that product
         if (e.target.classList.contains("new-category-input")) {
           const dropdown = e.target.closest(".inline-category-dropdown");
           const productItem = e.target.closest(".product-item");
           const index = parseInt(productItem.getAttribute("data-index"));
           const product = allProducts[index];
 
-          // Update the product category
           product.category = newCategoryValue;
 
-          // Update in storage
           chrome.storage.local.get({ cart: {} }, (data) => {
-            // Remove from all folders first
             Object.keys(data.cart).forEach((folder) => {
               data.cart[folder] = data.cart[folder].filter(
                 (item) => item.url !== product.url
@@ -1421,27 +1371,22 @@ document.addEventListener("DOMContentLoaded", function () {
               }
             });
 
-            // Add to the new category folder
             if (!data.cart[newCategoryName]) {
               data.cart[newCategoryName] = [];
             }
             data.cart[newCategoryName].push(product);
 
             chrome.storage.local.set({ cart: data.cart }, () => {
-              // Close the dropdown
               dropdown.classList.remove("show");
               e.target.value = "";
 
-              // Reload cart to update display
               window.loadCart();
             });
           });
         } else {
-          // Just creating a new category from main dropdown
           updateAllDropdowns();
           updateMainDropdown();
 
-          // Clear input and close dropdown
           e.target.value = "";
           document
             .getElementById("mainCategoryDropdown")
@@ -1470,7 +1415,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // Handle checkout button
   document.getElementById("checkoutBtn").addEventListener("click", function () {
     const filteredProducts = getFilteredProducts();
 
@@ -1478,21 +1422,89 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Open filtered and sorted products
     const sortedProducts = sortProducts([...filteredProducts], currentSort);
     sortedProducts.forEach((product) => {
       chrome.tabs.create({ url: product.url, active: false });
     });
   });
 
-  // Handle close button
+  document
+    .getElementById("removeAllBtn")
+    .addEventListener("click", function () {
+      const filteredProducts = getFilteredProducts();
+
+      if (filteredProducts.length === 0) {
+        return;
+      }
+
+      if (
+        confirm(
+          `Are you sure you want to remove all ${filteredProducts.length} products? This action cannot be undone.`
+        )
+      ) {
+        console.log("🗑️ Removing all products...");
+
+        // Disable button during operation
+        this.disabled = true;
+        this.textContent = "Removing...";
+
+        let completedCount = 0;
+        let failedCount = 0;
+
+        const removePromises = filteredProducts.map((product) => {
+          return new Promise((resolve) => {
+            chrome.runtime.sendMessage(
+              {
+                action: "deleteProduct",
+                productId: product.id,
+              },
+              (response) => {
+                if (response.success) {
+                  completedCount++;
+                  console.log(
+                    `✅ Removed product ${completedCount}/${filteredProducts.length}:`,
+                    product.title
+                  );
+                } else {
+                  failedCount++;
+                  console.error(`❌ Failed to remove product:`, response.error);
+                }
+                resolve();
+              }
+            );
+          });
+        });
+
+        Promise.all(removePromises).then(() => {
+          console.log(
+            `✅ Remove all completed. Success: ${completedCount}, Failed: ${failedCount}`
+          );
+
+          // Re-enable button
+          this.disabled = false;
+          this.textContent = "Remove All";
+
+          // Reload cart
+          if (typeof window.loadCart === "function") {
+            window.loadCart();
+          }
+
+          if (failedCount > 0) {
+            alert(
+              `Removed ${completedCount} products. ${failedCount} products could not be removed.`
+            );
+          } else {
+            alert(`Successfully removed all ${completedCount} products!`);
+          }
+        });
+      }
+    });
+
   document.getElementById("closeBtn").addEventListener("click", function () {
     window.close();
   });
 
-  // Close dropdowns when clicking outside
   document.addEventListener("click", function (e) {
-    // Don't close if clicking on input field
     if (
       e.target.classList.contains("new-category-input") ||
       e.target.classList.contains("main-new-category-input")
@@ -1500,7 +1512,6 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    // Close main dropdown
     const mainDropdown = document.getElementById("mainCategoryDropdown");
     if (mainDropdown.classList.contains("show")) {
       mainDropdown.classList.remove("show");
@@ -1508,18 +1519,14 @@ document.addEventListener("DOMContentLoaded", function () {
         "rotate(0deg)";
     }
 
-    // Close inline dropdowns
     document
       .querySelectorAll(".inline-category-dropdown")
       .forEach((dropdown) => {
         dropdown.classList.remove("show");
       });
   });
-
-  // Initialize - loadCart will be called after authentication
 });
 
-// Sync functions
 function updateSyncUI(syncing, message = "") {
   const syncIndicator = document.getElementById("syncIndicator");
   const syncButton = document.getElementById("syncButton");
@@ -1541,7 +1548,6 @@ function updateSyncUI(syncing, message = "") {
 function manualSync() {
   if (isSyncing) return;
 
-  // Check if user is authenticated first
   if (!currentUser) {
     console.log("User not authenticated, cannot sync");
     updateSyncUI(false, "❌ Please sign in");
@@ -1550,12 +1556,10 @@ function manualSync() {
 
   updateSyncUI(true);
 
-  // Simple sync - just get all products from server
   chrome.runtime.sendMessage({ action: "getAllProducts" }, (response) => {
     if (response && response.success) {
       updateSyncUI(false, `✅ Synced (${response.productCount} products)`);
 
-      // Reload the cart display without page reload
       if (!isLoadingCart) {
         if (typeof window.loadCart === "function") {
           window.loadCart();
@@ -1565,23 +1569,19 @@ function manualSync() {
         }
       }
 
-      // Reset button text after 3 seconds
       setTimeout(() => {
         updateSyncUI(false);
       }, 3000);
     } else {
       console.error("❌ Sync failed:", response?.error);
 
-      // Handle authentication errors
-      if (response?.needsAuth) {
+      if (response?.needsAuth || handleAuthError(response?.error)) {
         updateSyncUI(false, "❌ Please sign in");
-        signOutUser();
       } else {
         updateSyncUI(false, "❌ Sync Failed");
       }
       console.error("Sync failed:", response.error);
 
-      // Reset button text after 3 seconds
       setTimeout(() => {
         updateSyncUI(false);
       }, 3000);
@@ -1589,7 +1589,6 @@ function manualSync() {
   });
 }
 
-// Add event listener when DOM loads
 document.addEventListener("DOMContentLoaded", function () {
   const syncButton = document.getElementById("syncButton");
   if (syncButton) {
@@ -1598,17 +1597,12 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
-  // Initial sync status
   updateSyncUI(false);
 
-  // Load cart data when popup opens (no auto-sync)
-  // The initial loadCart() call in the main initialization will handle this
-
-  // Listen for storage changes to update the display
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.cart && !isLoadingCart) {
       console.log("📦 Cart storage changed, updating display...");
-      // Just reload the cart data, don't reload the entire page
+
       if (typeof window.loadCart === "function") {
         window.loadCart();
       } else {

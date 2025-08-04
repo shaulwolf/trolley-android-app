@@ -1,12 +1,9 @@
-// Enhanced Trolley Background Service with Firebase Auth
 const BACKEND_URL = "http://localhost:3000";
 
-// Firebase Configuration
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
 };
 
-// Get current Firebase ID token
 async function getFirebaseToken() {
   return new Promise((resolve) => {
     chrome.storage.local.get(["firebase_id_token"], (result) => {
@@ -15,14 +12,59 @@ async function getFirebaseToken() {
   });
 }
 
-// Store Firebase ID token
-async function storeFirebaseToken(token) {
+async function storeFirebaseToken(token, refreshToken = null) {
   return new Promise((resolve) => {
-    chrome.storage.local.set({ firebase_id_token: token }, resolve);
+    const data = { firebase_id_token: token };
+    if (refreshToken) {
+      data.firebase_refresh_token = refreshToken;
+    }
+    chrome.storage.local.set(data, resolve);
   });
 }
 
-// OAuth in background to avoid popup closing issues
+async function refreshFirebaseToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["firebase_refresh_token"], async (result) => {
+      if (!result.firebase_refresh_token) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        console.log("🔄 Attempting to refresh Firebase token...");
+
+        const response = await fetch(
+          `https://securetoken.googleapis.com/v1/token?key=${FIREBASE_CONFIG.apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              grant_type: "refresh_token",
+              refresh_token: result.firebase_refresh_token,
+            }),
+          }
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log("✅ Firebase token refreshed successfully");
+
+          await storeFirebaseToken(data.id_token, data.refresh_token);
+          resolve(data.id_token);
+        } else {
+          console.log("❌ Token refresh failed:", response.status);
+          resolve(null);
+        }
+      } catch (error) {
+        console.error("❌ Token refresh error:", error);
+        resolve(null);
+      }
+    });
+  });
+}
+
 async function performOAuthInBackground() {
   return new Promise((resolve, reject) => {
     console.log("🔐 Starting OAuth in background...");
@@ -67,7 +109,6 @@ async function performOAuthInBackground() {
         try {
           console.log("✅ OAuth redirect received:", redirectUrl);
 
-          // Витягти код авторизації
           const url = new URL(redirectUrl);
           const code = url.searchParams.get("code");
 
@@ -80,7 +121,6 @@ async function performOAuthInBackground() {
             "🔑 Authorization code received, exchanging for tokens..."
           );
 
-          // Обміняти код на токени
           const tokenResponse = await exchangeCodeForTokens(
             code,
             clientId,
@@ -89,14 +129,12 @@ async function performOAuthInBackground() {
 
           console.log("🎫 Tokens received, getting user info...");
 
-          // Отримати інформацію про користувача
           const userInfo = await getUserInfoFromGoogle(
             tokenResponse.access_token
           );
 
           console.log("👤 User info received:", userInfo.email);
 
-          // Створити Firebase користувача
           const firebaseResult = await createFirebaseUser(
             tokenResponse.id_token,
             userInfo
@@ -118,7 +156,6 @@ async function performOAuthInBackground() {
   });
 }
 
-// Обміняти код на токени
 async function exchangeCodeForTokens(code, clientId, redirectUri) {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -145,7 +182,6 @@ async function exchangeCodeForTokens(code, clientId, redirectUri) {
   return result;
 }
 
-// Отримати інформацію про користувача з Google
 async function getUserInfoFromGoogle(accessToken) {
   const response = await fetch(
     `https://www.googleapis.com/oauth2/v1/userinfo?access_token=${accessToken}`
@@ -162,7 +198,6 @@ async function getUserInfoFromGoogle(accessToken) {
   return result;
 }
 
-// Створити Firebase користувача
 async function createFirebaseUser(idToken, userInfo) {
   const firebaseConfig = {
     apiKey: "AIzaSyD8u8zHaq-v9yHMqWk24H1ft38Ej9oNmJo",
@@ -193,10 +228,8 @@ async function createFirebaseUser(idToken, userInfo) {
   const result = await response.json();
   console.log("✅ Firebase authentication successful");
 
-  // Зберегти Firebase токен
-  await storeFirebaseToken(result.idToken);
+  await storeFirebaseToken(result.idToken, result.refreshToken);
 
-  // Створити профіль користувача в backend
   try {
     await createUserProfileInBackend(userInfo, result.idToken);
   } catch (error) {
@@ -206,7 +239,6 @@ async function createFirebaseUser(idToken, userInfo) {
   return result;
 }
 
-// Створити профіль користувача в backend
 async function createUserProfileInBackend(userInfo, firebaseToken) {
   try {
     const response = await fetch(
@@ -240,9 +272,8 @@ async function createUserProfileInBackend(userInfo, firebaseToken) {
   }
 }
 
-// Make authenticated API request
 async function makeAuthenticatedRequest(url, options = {}) {
-  const token = await getFirebaseToken();
+  let token = await getFirebaseToken();
 
   if (!token) {
     throw new Error("User not authenticated. Please sign in first.");
@@ -254,21 +285,53 @@ async function makeAuthenticatedRequest(url, options = {}) {
     ...options.headers,
   };
 
-  const response = await fetch(url, {
+  let response = await fetch(url, {
     ...options,
     headers,
   });
 
   if (response.status === 401) {
-    // Token expired or invalid, clear it
-    chrome.storage.local.remove(["firebase_id_token"]);
-    throw new Error("Authentication expired. Please sign in again.");
+    console.log("🔄 401 error, attempting token refresh...");
+    const newToken = await refreshFirebaseToken();
+
+    if (newToken) {
+      console.log("✅ Token refreshed, retrying request...");
+
+      const newHeaders = {
+        ...headers,
+        Authorization: `Bearer ${newToken}`,
+      };
+
+      response = await fetch(url, {
+        ...options,
+        headers: newHeaders,
+      });
+
+      if (response.status === 401) {
+        console.log(
+          "🚨 401 error persists after token refresh, clearing tokens..."
+        );
+        chrome.storage.local.remove([
+          "firebase_id_token",
+          "firebase_user_info",
+          "firebase_refresh_token",
+        ]);
+        throw new Error("Authentication expired. Please sign in again.");
+      }
+    } else {
+      console.log("🚨 Token refresh failed, clearing tokens...");
+      chrome.storage.local.remove([
+        "firebase_id_token",
+        "firebase_user_info",
+        "firebase_refresh_token",
+      ]);
+      throw new Error("Authentication expired. Please sign in again.");
+    }
   }
 
   return response;
 }
 
-// Get all products from server (authenticated)
 async function getAllProducts() {
   try {
     console.log("📥 Getting all products from server...");
@@ -291,7 +354,6 @@ async function getAllProducts() {
   }
 }
 
-// Add product to server (authenticated)
 async function addProduct(product) {
   try {
     console.log("➕ Adding product to server:", product.title);
@@ -332,36 +394,34 @@ async function addProduct(product) {
   }
 }
 
-// Delete product from server (authenticated)
 async function deleteProduct(productId) {
   try {
-    console.log("🗑️ Deleting product from server:", productId);
+    console.log("📦 Archiving product from server:", productId);
 
     const response = await makeAuthenticatedRequest(
-      `${BACKEND_URL}/api/products/${productId}`,
+      `${BACKEND_URL}/api/products/${productId}/archive`,
       {
-        method: "DELETE",
+        method: "POST",
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(
-        `Failed to delete product: ${response.status} - ${errorText}`
+        `Failed to archive product: ${response.status} - ${errorText}`
       );
     }
 
     const result = await response.json();
-    console.log("✅ Product deleted from server successfully");
+    console.log("✅ Product archived from server successfully");
 
     return result;
   } catch (error) {
-    console.error("❌ Failed to delete product from server:", error);
+    console.error("❌ Failed to archive product from server:", error);
     throw error;
   }
 }
 
-// Extract product info from URL (public endpoint)
 async function extractProductInfo(url) {
   try {
     console.log("🔍 Extracting product info from:", url);
@@ -388,17 +448,14 @@ async function extractProductInfo(url) {
   }
 }
 
-// Convert server format to Chrome storage format
 function serverToChrome(products) {
   const chromeData = {};
 
-  // Always create "All Items" folder for compatibility
   chromeData["All Items"] = [];
 
   products.forEach((product) => {
     const category = product.category || "general";
 
-    // Add to "All Items" folder
     chromeData["All Items"].push({
       id: product.id,
       url: product.url,
@@ -412,7 +469,6 @@ function serverToChrome(products) {
       dateAdded: product.dateAdded,
     });
 
-    // Also add to category folder if not "general"
     if (category !== "general") {
       if (!chromeData[category]) {
         chromeData[category] = [];
@@ -436,7 +492,6 @@ function serverToChrome(products) {
   return chromeData;
 }
 
-// Update badge with product count
 function updateBadge() {
   chrome.storage.local.get({ cart: {} }, (result) => {
     let count = 0;
@@ -453,18 +508,15 @@ function updateBadge() {
   });
 }
 
-// Initialize extension
 chrome.runtime.onInstalled.addListener(() => {
   console.log("🚀 Trolley Extension installed");
   updateBadge();
 });
 
-// Email Authentication Functions
 async function emailSignInInBackground(email, password) {
   console.log("🔐 Starting email sign in process...");
 
   try {
-    // Sign in with Firebase Auth REST API
     const signInResponse = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_CONFIG.apiKey}`,
       {
@@ -488,7 +540,6 @@ async function emailSignInInBackground(email, password) {
 
     console.log("✅ Firebase email sign in successful");
 
-    // Create user info object
     const userInfo = {
       uid: signInData.localId,
       email: signInData.email,
@@ -497,13 +548,8 @@ async function emailSignInInBackground(email, password) {
       photoURL: null,
     };
 
-    // Store Firebase ID token
-    chrome.storage.local.set({
-      firebase_id_token: signInData.idToken,
-      firebase_refresh_token: signInData.refreshToken,
-    });
+    await storeFirebaseToken(signInData.idToken, signInData.refreshToken);
 
-    // Create user profile in backend
     await createUserProfileInBackend(userInfo, signInData.idToken);
 
     return {
@@ -520,7 +566,6 @@ async function emailSignUpInBackground(email, password) {
   console.log("📝 Starting email sign up process...");
 
   try {
-    // Sign up with Firebase Auth REST API
     const signUpResponse = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_CONFIG.apiKey}`,
       {
@@ -544,7 +589,6 @@ async function emailSignUpInBackground(email, password) {
 
     console.log("✅ Firebase email sign up successful");
 
-    // Send email verification
     try {
       await fetch(
         `https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FIREBASE_CONFIG.apiKey}`,
@@ -564,7 +608,6 @@ async function emailSignUpInBackground(email, password) {
       console.warn("⚠️ Failed to send verification email:", emailError);
     }
 
-    // Create user info object
     const userInfo = {
       uid: signUpData.localId,
       email: signUpData.email,
@@ -573,13 +616,8 @@ async function emailSignUpInBackground(email, password) {
       photoURL: null,
     };
 
-    // Store Firebase ID token
-    chrome.storage.local.set({
-      firebase_id_token: signUpData.idToken,
-      firebase_refresh_token: signUpData.refreshToken,
-    });
+    await storeFirebaseToken(signUpData.idToken, signUpData.refreshToken);
 
-    // Create user profile in backend
     await createUserProfileInBackend(userInfo, signUpData.idToken);
 
     return {
@@ -592,7 +630,6 @@ async function emailSignUpInBackground(email, password) {
   }
 }
 
-// Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("📨 Received message:", request);
 
@@ -616,7 +653,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "emailSignIn") {
@@ -639,7 +676,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "emailSignUp") {
@@ -662,7 +699,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "getAllProducts") {
@@ -670,7 +707,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     getAllProducts()
       .then((products) => {
-        // Convert to Chrome format and save
         const chromeData = serverToChrome(products);
         console.log("💾 Saving to Chrome storage:", chromeData);
         chrome.storage.local.set({ cart: chromeData }, () => {
@@ -698,7 +734,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "addProduct") {
@@ -707,12 +743,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     addProduct(request.product)
       .then((result) => {
         console.log("✅ Product added to server, result:", result);
-        // After adding, get all products again
         return getAllProducts();
       })
       .then((products) => {
         console.log("📥 Retrieved products after adding:", products.length);
-        // Convert to Chrome format and save
         const chromeData = serverToChrome(products);
         chrome.storage.local.set({ cart: chromeData }, () => {
           updateBadge();
@@ -734,31 +768,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "deleteProduct") {
-    console.log("🗑️ Delete product requested:", request.productId);
+    console.log("📦 Archive product requested:", request.productId);
 
     deleteProduct(request.productId)
       .then((result) => {
-        // After deleting, get all products again
         return getAllProducts();
       })
       .then((products) => {
-        // Convert to Chrome format and save
         const chromeData = serverToChrome(products);
         chrome.storage.local.set({ cart: chromeData }, () => {
           updateBadge();
           sendResponse({
             success: true,
-            message: `Product deleted successfully`,
+            message: `Product archived successfully`,
             productCount: products.length,
           });
         });
       })
       .catch((error) => {
-        console.error("❌ Error in deleteProduct flow:", error);
+        console.error("❌ Error in archive product flow:", error);
         sendResponse({
           success: false,
           error: error.message,
@@ -768,7 +800,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "extractProduct") {
@@ -789,7 +821,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
       });
 
-    return true; // Keep message channel open for async response
+    return true;
   }
 
   if (request.action === "storeFirebaseToken") {
@@ -824,13 +856,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === "clearAuth") {
-    chrome.storage.local.remove(["firebase_id_token"], () => {
-      sendResponse({ success: true });
-    });
+    chrome.storage.local.remove(
+      ["firebase_id_token", "firebase_user_info", "firebase_refresh_token"],
+      () => {
+        sendResponse({ success: true });
+      }
+    );
 
     return true;
   }
 });
 
-// Update badge on startup
 updateBadge();

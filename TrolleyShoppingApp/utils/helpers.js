@@ -5,10 +5,8 @@ export const cleanStoreName = (url) => {
     const hostname = new URL(url.startsWith("http") ? url : `https://${url}`)
       .hostname;
 
-    // Remove www. prefix
     const withoutWww = hostname.replace(/^www\./, "");
 
-    // Return mapped name or capitalize the domain
     return (
       STORE_NAMES[withoutWww] ||
       withoutWww

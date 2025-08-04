@@ -409,6 +409,142 @@ const FirebaseService = {
     }
   },
 
+  async archiveUserProduct(userId, productId) {
+    if (!db) throw new Error("Firebase not initialized");
+
+    try {
+      const productRef = db
+        .collection("users")
+        .doc(userId)
+        .collection("products")
+        .doc(productId);
+
+      const productDoc = await productRef.get();
+
+      if (!productDoc.exists) {
+        throw new Error("Product not found");
+      }
+
+      const productData = productDoc.data();
+
+      await db.runTransaction(async (transaction) => {
+        transaction.delete(productRef);
+
+        transaction.set(
+          db
+            .collection("users")
+            .doc(userId)
+            .collection("archive")
+            .doc(productId),
+          {
+            ...productData,
+            archivedAt: new Date().toISOString(),
+            originalId: productId,
+          }
+        );
+      });
+
+      console.log(`Product archived for user ${userId}: ${productId}`);
+      return true;
+    } catch (error) {
+      console.error("Error archiving user product:", error);
+      throw error;
+    }
+  },
+
+  async getUserArchivedProducts(userId) {
+    if (!db) throw new Error("Firebase not initialized");
+
+    try {
+      const snapshot = await db
+        .collection("users")
+        .doc(userId)
+        .collection("archive")
+        .orderBy("archivedAt", "desc")
+        .get();
+
+      const archivedProducts = [];
+      snapshot.forEach((doc) => {
+        archivedProducts.push({
+          id: doc.id,
+          ...doc.data(),
+        });
+      });
+
+      console.log(
+        `Retrieved ${archivedProducts.length} archived products for user ${userId}`
+      );
+      return archivedProducts;
+    } catch (error) {
+      console.error("Error getting user archived products:", error);
+      throw error;
+    }
+  },
+
+  async restoreArchivedProduct(userId, productId) {
+    if (!db) throw new Error("Firebase not initialized");
+
+    try {
+      const archivedRef = db
+        .collection("users")
+        .doc(userId)
+        .collection("archive")
+        .doc(productId);
+
+      const archivedDoc = await archivedRef.get();
+
+      if (!archivedDoc.exists) {
+        throw new Error("Archived product not found");
+      }
+
+      const archivedData = archivedDoc.data();
+      const { archivedAt, originalId, ...productData } = archivedData;
+
+      await db.runTransaction(async (transaction) => {
+        transaction.delete(archivedRef);
+
+        transaction.set(
+          db
+            .collection("users")
+            .doc(userId)
+            .collection("products")
+            .doc(productId),
+          {
+            ...productData,
+            restoredAt: new Date().toISOString(),
+          }
+        );
+      });
+
+      console.log(`Product restored for user ${userId}: ${productId}`);
+      return true;
+    } catch (error) {
+      console.error("Error restoring archived product:", error);
+      throw error;
+    }
+  },
+
+  async deleteArchivedProduct(userId, productId) {
+    if (!db) throw new Error("Firebase not initialized");
+
+    try {
+      await db
+        .collection("users")
+        .doc(userId)
+        .collection("archive")
+        .doc(productId)
+        .delete();
+
+      console.log(
+        `Archived product deleted permanently for user ${userId}: ${productId}`
+      );
+      return true;
+    } catch (error) {
+      console.error("Error deleting archived product:", error);
+      throw error;
+    }
+  },
+
   async clearUserProducts(userId) {
     if (!db) throw new Error("Firebase not initialized");
 

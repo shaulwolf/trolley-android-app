@@ -41,11 +41,9 @@ const LoginPage = () => {
       if (user) {
         console.log("Auth state changed - User logged in:", user.email);
 
-        // Create user profile in backend after successful login
         try {
           console.log("🔄 Creating/updating user profile in backend...");
 
-          // Wait a moment for the token to be ready
           await new Promise((resolve) => setTimeout(resolve, 1000));
 
           const profileData = {
@@ -56,7 +54,6 @@ const LoginPage = () => {
             createdAt: new Date().toISOString(),
           };
 
-          // Create user profile in backend using API service
           const response = await fetch(
             "http://localhost:3000/api/users/profile",
             {
@@ -76,7 +73,6 @@ const LoginPage = () => {
           }
         } catch (error) {
           console.log("⚠️ Error creating user profile:", error.message);
-          // Continue anyway - user can still use the app
         }
       } else {
         console.log("Auth state changed - User logged out");
@@ -104,8 +100,6 @@ const LoginPage = () => {
 
         const firebaseIdToken = await firebaseUser.user.getIdToken();
         console.log("Firebase ID Token for backend:", firebaseIdToken);
-
-        // User profile creation will be handled by auth state change listener
       } else {
         console.log("No ID token received from Google");
       }
@@ -188,7 +182,6 @@ const LoginPage = () => {
       );
       console.log("User created with email:", userCredential.user.email);
 
-      // Send email verification
       await userCredential.user.sendEmailVerification();
       Alert.alert(
         "Registration Successful!",
@@ -230,7 +223,6 @@ const LoginPage = () => {
         <Text style={styles.title}>Welcome to Trolley</Text>
         <Text style={styles.subtitle}>Your personal shopping assistant</Text>
 
-        {/* Email/Password Form */}
         <View style={styles.formContainer}>
           <Text style={styles.formTitle}>
             {isLogin ? "Sign In" : "Create Account"}
@@ -278,14 +270,12 @@ const LoginPage = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Divider */}
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>or</Text>
           <View style={styles.dividerLine} />
         </View>
 
-        {/* Google Sign In */}
         <TouchableOpacity
           style={[styles.googleButton, loading && styles.disabledButton]}
           onPress={googleSignIn}

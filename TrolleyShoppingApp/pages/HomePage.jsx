@@ -2,53 +2,55 @@ import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
-  SafeAreaView,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
+  StyleSheet,
   Alert,
   RefreshControl,
+  TextInput,
+  Modal,
+  ScrollView,
+  SafeAreaView,
   ActivityIndicator,
-  Linking,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as Linking from "expo-linking";
+import * as Clipboard from "expo-clipboard";
+import auth from "@react-native-firebase/auth";
+
 import Header from "../components/Header";
 import ProductCard from "../components/ProductCard";
-import FilterTabs from "../components/FilterTabs";
 import AddProductModal from "../components/AddProductModal";
 import CategoryModal from "../components/CategoryModal";
+import FilterTabs from "../components/FilterTabs";
+import BurgerMenu from "../components/BurgerMenu";
+import ArchivePage from "./ArchivePage";
+
 import { useProducts } from "../hooks/useProducts";
 import { useSync } from "../hooks/useSync";
 import { useProductExtraction } from "../hooks/useProductExtraction";
-import { GoogleSignin } from "@react-native-google-signin/google-signin";
-import auth from "@react-native-firebase/auth";
+import { SORT_OPTIONS, STORE_NAMES } from "../utils/constants";
+import { cleanStoreName } from "../utils/helpers";
 
 const HomePage = () => {
+  const [currentTab, setCurrentTab] = useState("categories");
+  const [currentFilter, setCurrentFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("recently-added");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [isAddModalVisible, setIsAddModalVisible] = useState(false);
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
-  const [productUrl, setProductUrl] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [currentFilter, setCurrentFilter] = useState("all");
-  const [currentTab, setCurrentTab] = useState("categories");
-  const [refreshing, setRefreshing] = useState(false);
   const [editingProductId, setEditingProductId] = useState(null);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [productUrl, setProductUrl] = useState("");
+  const [isBurgerMenuVisible, setIsBurgerMenuVisible] = useState(false);
+  const [showArchivePage, setShowArchivePage] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState("");
   const [showCategoriesDropdown, setShowCategoriesDropdown] = useState(false);
   const [showStoresDropdown, setShowStoresDropdown] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("recently-added");
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const [user, setUser] = useState(null);
-
-  const googleSignOut = async () => {
-    try {
-      await auth().signOut();
-
-      await GoogleSignin.signOut();
-
-      console.log("User signed out successfully");
-    } catch (error) {
-      console.log("Sign out error:", error);
-    }
-  };
+  const [isClearingAll, setIsClearingAll] = useState(false);
 
   const {
     products,
@@ -76,12 +78,27 @@ const HomePage = () => {
 
   const { isExtracting, addProductManually } = useProductExtraction();
 
+  const handleSignOut = async () => {
+    try {
+      await auth().signOut();
+    } catch (error) {
+      console.error("[HomePage] Error signing out:", error);
+    }
+  };
+
+  const handleNavigateToArchive = () => {
+    setShowArchivePage(true);
+  };
+
+  const handleBackFromArchive = () => {
+    setShowArchivePage(false);
+  };
+
   useEffect(() => {
     const initializeApp = async () => {
       console.log("🚀 App initialization started");
       await loadProducts();
 
-      // Initial load - get all products from server
       setTimeout(async () => {
         console.log(
           "🚀 Initial load starting - getting all products from server..."
@@ -94,14 +111,13 @@ const HomePage = () => {
             "products from server"
           );
 
-          // Update local state with server data
           if (updateProductsFromSync) {
             updateProductsFromSync(serverProducts);
           }
         } catch (error) {
           console.error("❌ Initial load failed:", error);
         }
-      }, 2000); // Wait 2 seconds after app loads
+      }, 2000);
     };
 
     initializeApp();
@@ -109,7 +125,6 @@ const HomePage = () => {
 
   useEffect(() => {
     const refreshInterval = setInterval(async () => {
-      // Only refresh if we're not already syncing and have loaded products
       if (!isSyncing && !isLoading) {
         console.log(
           "⏰ Auto-refresh triggered - getting all products from server"
@@ -122,7 +137,6 @@ const HomePage = () => {
             "products from server"
           );
 
-          // Update local state with server data
           if (updateProductsFromSync) {
             updateProductsFromSync(serverProducts);
           }
@@ -130,42 +144,10 @@ const HomePage = () => {
           console.error("❌ Auto-refresh failed:", error);
         }
       }
-    }, 30000); // 30 seconds
+    }, 30000);
 
     return () => clearInterval(refreshInterval);
   }, [isSyncing, isLoading]);
-
-  useEffect(() => {
-    const handleInitialURL = async () => {
-      try {
-        const initialUrl = await Linking.getInitialURL();
-        console.log("📱 App opened with initial URL:", initialUrl);
-        if (initialUrl && initialUrl.trim() !== "") {
-          setTimeout(() => handleIncomingURL(initialUrl), 1000);
-        } else {
-          console.log("📱 No initial URL found, app opened normally");
-        }
-      } catch (error) {
-        console.log("Error getting initial URL:", error);
-      }
-    };
-
-    const handleURLChange = (event) => {
-      console.log("📱 App received URL while running:", event);
-      const url = event?.url || event;
-      if (url && url.trim() !== "") {
-        handleIncomingURL(url);
-      }
-    };
-
-    handleInitialURL();
-
-    const subscription = Linking.addEventListener("url", handleURLChange);
-
-    return () => {
-      subscription?.remove();
-    };
-  }, [products]);
 
   const handleIncomingURL = async (url) => {
     if (
@@ -175,10 +157,10 @@ const HomePage = () => {
       url === "null" ||
       url === "undefined"
     ) {
-      console.log("📱 No valid URL provided, skipping");
+      console.log("[HomePage] No valid URL provided, skipping");
       return;
     }
-    console.log("📱 Received URL for auto-addition:", url);
+    console.log("[HomePage] Received URL for auto-addition:", url);
 
     try {
       let extractedUrl = null;
@@ -187,12 +169,15 @@ const HomePage = () => {
         if (
           url.includes("exp+trolley-shopping-app://expo-development-client/")
         ) {
-          console.log("📱 Expo development client URL detected");
+          console.log("[HomePage] Expo development client URL detected");
           const urlParams = new URLSearchParams(url.split("?")[1]);
           extractedUrl = urlParams.get("url");
           if (extractedUrl) {
             extractedUrl = decodeURIComponent(extractedUrl);
-            console.log("📱 Decoded URL from Expo client:", extractedUrl);
+            console.log(
+              "[HomePage] Decoded URL from Expo client:",
+              extractedUrl
+            );
           }
         } else if (url.startsWith("http://") || url.startsWith("https://")) {
           extractedUrl = url;
@@ -217,7 +202,7 @@ const HomePage = () => {
         typeof extractedUrl !== "string" ||
         !/^https?:\/\//.test(extractedUrl)
       ) {
-        console.log("❌ Not a valid product URL:", extractedUrl);
+        console.log("[HomePage] Not a valid product URL:", extractedUrl);
         return;
       }
 
@@ -229,98 +214,72 @@ const HomePage = () => {
         extractedUrl.includes("192.168.") ||
         extractedUrl.includes("10.0.") ||
         extractedUrl.includes(".ngrok.") ||
-        extractedUrl.includes("codespace") ||
-        extractedUrl.includes(".github.dev") ||
-        extractedUrl.includes("stackblitz") ||
-        extractedUrl.includes("codesandbox") ||
-        extractedUrl.includes("replit") ||
-        extractedUrl.includes("vercel.app") ||
-        extractedUrl.includes("netlify.app");
+        extractedUrl.includes("trolley-shopping-app");
 
       if (isDevelopmentUrl) {
-        console.log("🚫 Development URL detected, ignoring:", extractedUrl);
         console.log(
-          "📱 This appears to be a development/preview URL, not a real product URL"
+          "[HomePage] Development URL detected, skipping:",
+          extractedUrl
         );
         return;
       }
 
-      console.log(
-        "✅ Valid product URL detected, proceeding with extraction..."
-      );
+      console.log("[HomePage] Processing valid product URL:", extractedUrl);
 
-      Alert.alert("Adding Product", "Extracting product information...", [], {
-        cancelable: false,
-      });
-
-      try {
-        const exists = products.some((p) => p.url === extractedUrl);
-        if (exists) {
-          Alert.alert(
-            "Already Added",
-            "This product is already in your trolley!"
-          );
-          return;
-        }
-
-        console.log("🔄 Extracting product info from:", extractedUrl);
-
-        await addProductManually(
-          extractedUrl,
-          "general",
-          products,
-          addProduct,
-          addCustomCategory
-        );
-
-        Alert.alert(
-          "Product Added! 🛒",
-          `Product has been added to your trolley`,
-          [
-            {
-              text: "View Trolley",
-              onPress: () => setCurrentTab("categories"),
-            },
-          ]
-        );
-
-        console.log("✅ Product auto-added successfully");
-      } catch (error) {
-        console.error("❌ Auto-addition failed:", error);
-        Alert.alert(
-          "Extraction Failed",
-          `Could not extract product info. Would you like to add it manually?`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Add Manually",
-              onPress: () => {
-                setProductUrl(extractedUrl);
-                setIsAddModalVisible(true);
-              },
-            },
-          ]
-        );
-      }
+      setProductUrl(extractedUrl);
+      setIsAddModalVisible(true);
     } catch (error) {
-      console.log("❌ Error handling shared URL:", error);
-      if (url && !url.includes(".exp.direct") && url.trim() !== "") {
-        Alert.alert("Error", `Failed to process shared URL: ${error.message}`);
-      }
+      console.error("[HomePage] Error processing incoming URL:", error);
     }
   };
+
+  useEffect(() => {
+    const handleInitialURL = async () => {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        console.log("[HomePage] App opened with initial URL:", initialUrl);
+        if (initialUrl && initialUrl.trim() !== "") {
+          setTimeout(() => handleIncomingURL(initialUrl), 1000);
+        } else {
+          console.log("[HomePage] No initial URL found, app opened normally");
+        }
+      } catch (error) {
+        console.log("[HomePage] Error getting initial URL:", error);
+      }
+    };
+
+    const handleURLChange = (event) => {
+      console.log("[HomePage] App received URL while running:", event);
+      const url = event?.url || event;
+      if (url && url.trim() !== "") {
+        handleIncomingURL(url);
+      }
+    };
+
+    handleInitialURL();
+
+    const subscription = Linking.addEventListener("url", handleURLChange);
+
+    return () => {
+      subscription?.remove();
+    };
+  }, [products]);
+
+  if (showArchivePage) {
+    return <ArchivePage onBack={handleBackFromArchive} />;
+  }
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
       await loadProducts();
-      // Get latest data from server without showing alerts
+
       const serverProducts = await getAllProducts();
       if (updateProductsFromSync) {
         updateProductsFromSync(serverProducts);
       }
     } catch (error) {
-      console.error("❌ Refresh failed:", error);
+      console.error("[HomePage] Refresh failed:", error);
     } finally {
       setRefreshing(false);
     }
@@ -336,7 +295,6 @@ const HomePage = () => {
         addCustomCategory
       );
 
-      // Add to server and get updated list
       if (newProduct) {
         await addProductAndSync(newProduct);
       }
@@ -351,18 +309,32 @@ const HomePage = () => {
 
   const handleRemoveProduct = async (productId) => {
     try {
-      console.log("🗑️ Starting deletion of product:", productId);
+      console.log("[HomePage] Starting archiving of product:", productId);
       console.log(
-        "🗑️ Current products count before deletion:",
+        "[HomePage] Current products count before archiving:",
         products.length
       );
 
-      // Delete from server and get updated list
-      await deleteProductAndSync(productId);
-      console.log("✅ Product deletion completed successfully");
+      // Зберігаємо поточний стан для відновлення у випадку помилки
+      const previousProducts = [...products];
+
+      // Оптимістично оновлюємо UI
+      const updatedProducts = products.filter((p) => p.id !== productId);
+      // Оновлюємо products через updateProductsFromSync
+      if (updateProductsFromSync) {
+        updateProductsFromSync(updatedProducts);
+      }
+
+      // Викликаємо API напряму без sync
+      await apiService.archiveProduct(productId);
+      console.log("[HomePage] Product archiving completed successfully");
     } catch (error) {
-      console.error("❌ Error deleting product:", error);
-      Alert.alert("Error", "Failed to delete product");
+      console.error("[HomePage] Error archiving product:", error);
+      // Відновлюємо попередній стан у випадку помилки
+      if (updateProductsFromSync) {
+        updateProductsFromSync(previousProducts);
+      }
+      Alert.alert("Error", "Failed to archive product");
     }
   };
 
@@ -405,21 +377,41 @@ const HomePage = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              console.log("🗑️ Starting clear all operation...");
+              setIsClearingAll(true);
+              console.log("[HomePage] Starting clear all operation...");
 
-              console.log("🗑️ Deleting all products from backend...");
-              for (const product of products) {
-                await deleteProductAndSync(product.id);
+              // Зберігаємо поточний стан для відновлення у випадку помилки
+              const previousProducts = [...products];
+
+              // Оптимістично очищаємо UI
+              if (updateProductsFromSync) {
+                updateProductsFromSync([]);
               }
-              console.log("🗑️ All products deleted from backend");
+
+              console.log("[HomePage] Archiving all products from backend...");
+
+              // Видаляємо всі товари без оновлення UI під час процесу
+              const archivePromises = previousProducts.map((product) =>
+                apiService.archiveProduct(product.id)
+              );
+
+              await Promise.all(archivePromises);
+
+              console.log("[HomePage] All products archived from backend");
 
               setCurrentFilter("all");
 
-              console.log("✅ Clear all completed successfully");
+              console.log("[HomePage] Clear all completed successfully");
               Alert.alert("Cleared", "All products removed from trolley");
             } catch (error) {
-              console.error("❌ Error during clear all:", error);
+              console.error("[HomePage] Error during clear all:", error);
+              // Відновлюємо попередній стан у випадку помилки
+              if (updateProductsFromSync) {
+                updateProductsFromSync(previousProducts);
+              }
               Alert.alert("Error", "Failed to clear all products");
+            } finally {
+              setIsClearingAll(false);
             }
           },
         },
@@ -471,7 +463,6 @@ const HomePage = () => {
 
   const filteredProducts = getFilteredProducts();
 
-  // Don't show full-screen loader - always show the UI structure
   // if (isLoading) {
   //   return (
   //     <SafeAreaView style={styles.container}>
@@ -486,12 +477,16 @@ const HomePage = () => {
   return (
     <SafeAreaView style={styles.container}>
       <Header
-        title="🛒 Trolley v2"
-        onAddPress={() => setIsAddModalVisible(true)}
-        isSyncing={isSyncing}
-        syncStatus={syncStatus}
-        lastSyncTime={lastSyncTime}
-        onManualSync={handleManualSync}
+        title="Trolley"
+        onAddProduct={() => setIsAddModalVisible(true)}
+        onOpenBurgerMenu={() => setIsBurgerMenuVisible(true)}
+      />
+
+      <BurgerMenu
+        isVisible={isBurgerMenuVisible}
+        onClose={() => setIsBurgerMenuVisible(false)}
+        onNavigateToArchive={handleNavigateToArchive}
+        onSignOut={handleSignOut}
       />
 
       <FilterTabs
@@ -536,7 +531,6 @@ const HomePage = () => {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={true}
       >
-        {/* Show loading indicator only for the products list */}
         {isLoading && products.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#212529" />
@@ -579,7 +573,6 @@ const HomePage = () => {
           </TouchableOpacity>
         ) : (
           <>
-            {/* Show subtle loading indicator when refreshing with existing products */}
             {isLoading && products.length > 0 && (
               <View style={styles.subtleLoadingContainer}>
                 <ActivityIndicator size="small" color="#6c757d" />
@@ -621,28 +614,32 @@ const HomePage = () => {
               products.length === 0 && styles.disabledButton,
             ]}
             onPress={clearAll}
-            disabled={products.length === 0}
+            disabled={products.length === 0 || isClearingAll}
           >
-            <Text
-              style={[
-                styles.removeAllButtonText,
-                products.length === 0 && styles.disabledButtonText,
-              ]}
-            >
-              Remove All
-            </Text>
+            {isClearingAll ? (
+              <ActivityIndicator size="small" color="white" />
+            ) : (
+              <Text
+                style={[
+                  styles.removeAllButtonText,
+                  products.length === 0 && styles.disabledButtonText,
+                ]}
+              >
+                Delete All
+              </Text>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={[
               styles.actionButton,
               { backgroundColor: "#e74c3c", marginTop: 12 },
             ]}
-            onPress={googleSignOut}
+            onPress={handleSignOut}
           >
             <Text style={{ color: "#fff", fontWeight: "600", fontSize: 14 }}>
               Logout
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
       </View>
 

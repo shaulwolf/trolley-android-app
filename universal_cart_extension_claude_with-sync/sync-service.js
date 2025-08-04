@@ -1,4 +1,3 @@
-// Enhanced Chrome Extension Sync Service
 class EnhancedTrolleySyncService {
   constructor() {
     this.BACKEND_URL = 'http://localhost:3000';
@@ -11,7 +10,6 @@ class EnhancedTrolleySyncService {
     console.log('🔄 Enhanced Trolley Sync Service initialized');
   }
 
-  // Initialize consistent device ID
   async initializeDeviceId() {
     const result = await new Promise(resolve => {
       chrome.storage.local.get(['deviceId'], resolve);
@@ -25,7 +23,6 @@ class EnhancedTrolleySyncService {
     }
   }
 
-  // Load last sync time from storage
   async loadLastSyncTime() {
     const result = await new Promise(resolve => {
       chrome.storage.local.get(['lastSyncTime'], resolve);
@@ -33,7 +30,6 @@ class EnhancedTrolleySyncService {
     this.lastSyncTime = result.lastSyncTime ? new Date(result.lastSyncTime) : null;
   }
 
-  // Save last sync time to storage
   async saveLastSyncTime() {
     this.lastSyncTime = new Date();
     await new Promise(resolve => {
@@ -41,7 +37,6 @@ class EnhancedTrolleySyncService {
     });
   }
 
-  // Convert Chrome folder structure to flat array
   chromeToFlat(chromeData) {
     const products = [];
     
@@ -64,7 +59,6 @@ class EnhancedTrolleySyncService {
     return products;
   }
 
-  // Convert flat array back to Chrome folder structure
   flatToChrome(products) {
     const cart = {};
     const categoryMap = {
@@ -104,7 +98,6 @@ class EnhancedTrolleySyncService {
     return { cart };
   }
 
-  // Helper functions
   generateProductId(url) {
     return 'chrome-' + Date.now().toString() + '-' + Math.random().toString(36).substr(2, 9);
   }
@@ -113,30 +106,24 @@ class EnhancedTrolleySyncService {
     return str.replace(/\b\w/g, l => l.toUpperCase()).replace(/-/g, ' ');
   }
 
-  // Smart merge local and remote products
   smartMerge(localProducts, remoteProducts) {
     const merged = new Map();
     const conflicts = [];
 
-    // Add all remote products first
     remoteProducts.forEach(product => {
       merged.set(product.id, product);
     });
 
-    // Process local products - check for conflicts
     localProducts.forEach(localProduct => {
       const remoteProduct = merged.get(localProduct.id);
       
       if (!remoteProduct) {
-        // New local product - add it
         merged.set(localProduct.id, localProduct);
       } else {
-        // Conflict resolution by timestamp
         const localTime = new Date(localProduct.lastModified || 0);
         const remoteTime = new Date(remoteProduct.lastModified || 0);
         
-        if (localTime > remoteTime) {
-          // Local is newer - keep local
+        if (localTime > remoteTime) {   
           merged.set(localProduct.id, localProduct);
           conflicts.push({
             id: localProduct.id,
@@ -152,7 +139,6 @@ class EnhancedTrolleySyncService {
     return Array.from(merged.values());
   }
 
-  // Upload Chrome products to backend
   async syncUp() {
     try {
       console.log('📤 Chrome: Enhanced sync UP...');
@@ -189,18 +175,15 @@ class EnhancedTrolleySyncService {
     }
   }
 
-  // Download products from backend
   async syncDown() {
     try {
       console.log('📥 Chrome: Enhanced sync DOWN...');
       
-      // Get current local data for merging
       const chromeData = await new Promise(resolve => {
         chrome.storage.local.get({ cart: {} }, resolve);
       });
       const localProducts = this.chromeToFlat(chromeData);
       
-      // Fetch from backend with timestamp filter
       const url = this.lastSyncTime 
         ? `${this.BACKEND_URL}/api/sync?since=${this.lastSyncTime.toISOString()}`
         : `${this.BACKEND_URL}/api/sync`;
@@ -216,13 +199,10 @@ class EnhancedTrolleySyncService {
       
       console.log('📊 Chrome: Downloaded', remoteProducts.length, 'remote products');
       
-      // Smart merge
       const mergedProducts = this.smartMerge(localProducts, remoteProducts);
       
-      // Convert back to Chrome format
       const chromeFormat = this.flatToChrome(mergedProducts);
       
-      // Update Chrome storage
       await new Promise(resolve => {
         chrome.storage.local.set(chromeFormat, resolve);
       });
@@ -236,7 +216,6 @@ class EnhancedTrolleySyncService {
     }
   }
 
-  // Full bidirectional sync
   async sync() {
     if (this.syncInProgress) {
       console.log('⚠️ Chrome: Sync already in progress, skipping');
@@ -248,21 +227,16 @@ class EnhancedTrolleySyncService {
     try {
       console.log('🔄 Chrome: Starting enhanced bidirectional sync...');
       
-      // Step 1: Download latest (for conflict detection)
       await this.syncDown();
       
-      // Step 2: Upload our changes
       await this.syncUp();
       
-      // Step 3: Final download (authoritative state)
       const finalProducts = await this.syncDown();
       
-      // Step 4: Update sync timestamp
       await this.saveLastSyncTime();
       
       console.log(`✅ Chrome: Enhanced sync completed: ${finalProducts.length} products`);
       
-      // Notify extension about sync completion
       chrome.runtime.sendMessage({
         type: 'SYNC_COMPLETED',
         productCount: finalProducts.length
@@ -284,18 +258,17 @@ class EnhancedTrolleySyncService {
     }
   }
 
-  // Start auto-sync with exponential backoff
   startAutoSync() {
     console.log('⏰ Chrome: Starting intelligent auto-sync');
     
-    let syncInterval = 30000; // 30 seconds
-    const maxInterval = 300000; // 5 minutes max
+    let syncInterval = 30000;
+    const maxInterval = 300000;
     let consecutiveFailures = 0;
     
     const performAutoSync = async () => {
       try {
         await this.sync();
-        syncInterval = 30000; // Reset on success
+        syncInterval = 30000; 
         consecutiveFailures = 0;
       } catch (error) {
         consecutiveFailures++;
@@ -304,10 +277,8 @@ class EnhancedTrolleySyncService {
       }
     };
     
-    // Initial sync
     setTimeout(performAutoSync, 5000);
     
-    // Recurring sync
     setInterval(() => {
       if (!this.syncInProgress) {
         performAutoSync();
@@ -315,7 +286,6 @@ class EnhancedTrolleySyncService {
     }, syncInterval);
   }
 
-  // Enhanced storage change handler
   onStorageChange() {
     let syncTimeout;
     
@@ -338,8 +308,7 @@ class EnhancedTrolleySyncService {
     });
   }
 }
-
-// Export for use
-if (typeof module !== 'undefined' && module.exports) {
+    
+if (typeof module !== "undefined" && module.exports) {
   module.exports = EnhancedTrolleySyncService;
 }

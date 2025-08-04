@@ -199,6 +199,36 @@ router.put("/products/:id", authenticateUser, async (req, res) => {
   }
 });
 
+// Archive product endpoint (must come before DELETE to avoid route conflict)
+router.post("/products/:id/archive", authenticateUser, async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const { id } = req.params;
+
+    console.log("📦 Archiving product:", id, "for user:", uid);
+
+    await FirebaseService.archiveUserProduct(uid, id);
+
+    res.json({
+      success: true,
+      message: "Product archived successfully",
+      id,
+    });
+  } catch (error) {
+    console.error("❌ Error archiving product:", error);
+    console.error("❌ Error details:", {
+      userId: req.user?.uid,
+      productId: req.params?.id,
+      errorMessage: error.message,
+      errorStack: error.stack,
+    });
+    res.status(500).json({
+      error: "Failed to archive product",
+      details: error.message,
+    });
+  }
+});
+
 router.delete("/products/:id", authenticateUser, async (req, res) => {
   try {
     const { uid } = req.user;

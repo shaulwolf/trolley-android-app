@@ -1,110 +1,83 @@
 import React from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
-import { formatSyncTime } from "../utils/helpers";
+import { View, Text, TouchableOpacity, StyleSheet, Alert } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import auth from "@react-native-firebase/auth";
 
 const Header = ({
   title,
-  onAddPress,
+  onSync,
+  onClearAll,
+  onAddProduct,
   isSyncing,
   syncStatus,
-  lastSyncTime,
-  onManualSync,
+  showSyncButton = true,
+  showClearButton = true,
+  showAddButton = true,
+  onOpenBurgerMenu,
 }) => {
   return (
     <View style={styles.header}>
-      <Text style={styles.title}>{title}</Text>
-
-      <View style={styles.syncStatus}>
-        {isSyncing && (
-          <View style={styles.syncIndicator}>
-            <ActivityIndicator size="small" color="#007AFF" />
-            <Text style={styles.syncText}>Syncing...</Text>
-          </View>
-        )}
-
-        {!isSyncing && syncStatus === "success" && lastSyncTime && (
-          <TouchableOpacity onPress={onManualSync} style={styles.syncButton}>
-            <Text style={styles.syncText}>
-              ✅ Synced {formatSyncTime(lastSyncTime)}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {!isSyncing && syncStatus === "error" && (
-          <TouchableOpacity onPress={onManualSync} style={styles.syncButton}>
-            <Text style={[styles.syncText, { color: "#FF3B30" }]}>
-              ❌ Sync Failed - Tap to Retry
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {!isSyncing && syncStatus === "ready" && (
-          <TouchableOpacity onPress={onManualSync} style={styles.syncButton}>
-            <Text style={styles.syncText}>🔄 Tap to Sync</Text>
-          </TouchableOpacity>
-        )}
+      <View style={styles.leftSection}>
+        <TouchableOpacity
+          onPress={onOpenBurgerMenu}
+          style={styles.burgerButton}
+        >
+          <Ionicons name="menu" size={24} color="#007AFF" />
+        </TouchableOpacity>
+        <Text style={styles.title}>{title}</Text>
       </View>
 
-      <View style={styles.headerButtons}>
-        <TouchableOpacity style={styles.addButton} onPress={onAddPress}>
-          <Text style={styles.addButtonText}>+</Text>
-        </TouchableOpacity>
+      <View style={styles.rightSection}>
+        {showAddButton && (
+          <TouchableOpacity onPress={onAddProduct} style={styles.button}>
+            <Ionicons name="add" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
 };
 
-const styles = {
+const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 12,
-    backgroundColor: "#fff",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+    backgroundColor: "white",
     borderBottomWidth: 1,
-    borderBottomColor: "#e9ecef",
+    borderBottomColor: "#E5E5E5",
+  },
+  leftSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  burgerButton: {
+    padding: 5,
+    marginRight: 15,
   },
   title: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "bold",
-    color: "#212529",
+    color: "#333",
   },
-  headerButtons: {
+  rightSection: {
     flexDirection: "row",
     alignItems: "center",
   },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#212529",
-    justifyContent: "center",
-    alignItems: "center",
+  button: {
+    padding: 10,
+    marginLeft: 10,
   },
-  addButtonText: {
-    color: "#fff",
-    fontSize: 20,
+  disabledButton: {
+    opacity: 0.5,
   },
-  syncStatus: {
-    alignItems: "center",
-    marginVertical: 5,
+  spinning: {
+    transform: [{ rotate: "360deg" }],
   },
-  syncIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  syncButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: "#F2F2F7",
-  },
-  syncText: {
-    fontSize: 12,
-    color: "#007AFF",
-    fontWeight: "500",
-  },
-};
+});
 
 export default Header;

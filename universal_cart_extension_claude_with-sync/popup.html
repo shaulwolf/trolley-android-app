@@ -81,10 +81,10 @@
     <!-- Main App Section (hidden until authenticated) -->
     <div class="extension-container" id="mainApp" style="display: none">
       <div class="header">
-        <div class="header-top">
+        <!-- <div class="header-top">
           <h1>Trolley</h1>
           <button class="close-btn" id="closeBtn">×</button>
-        </div>
+        </div> -->
 
         <!-- User Info -->
         <div class="user-info" id="userInfo">
@@ -181,7 +181,16 @@
           <span class="subtotal-label">Total Items: </span>
           <span class="subtotal-amount" id="totalItems">0</span>
         </div>
-        <button class="checkout-btn" id="checkoutBtn">Open All Items</button>
+        <div class="footer-buttons">
+          <button
+            class="remove-all-btn"
+            id="removeAllBtn"
+            style="display: none"
+          >
+            Remove All
+          </button>
+          <button class="checkout-btn" id="checkoutBtn">Open All Items</button>
+        </div>
       </div>
     </div>
 
